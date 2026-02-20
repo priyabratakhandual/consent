@@ -5,6 +5,11 @@ dotenv.config();
 const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '3000', 10),
+  database: {
+    masterUrl: process.env.MASTER_DATABASE_URL,
+    // TENANT_DATABASE_URL is used only for prisma generate/migrate; runtime uses Tenant.databaseUrl
+    tenantDefaultUrl: process.env.TENANT_DATABASE_URL,
+  },
   jwt: {
     secret: process.env.JWT_SECRET || 'change-me-in-production',
     accessExpiry: process.env.JWT_ACCESS_EXPIRY || '15m',

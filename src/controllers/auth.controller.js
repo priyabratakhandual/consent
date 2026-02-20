@@ -13,8 +13,8 @@ export const register = asyncHandler(async (req, res) => {
 });
 
 export const login = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
-  const result = await authService.login(email, password);
+  const { email, password, tenantId } = req.body;
+  const result = await authService.login(email, password, tenantId);
   res.json({
     success: true,
     message: 'Login successful',
@@ -24,7 +24,8 @@ export const login = asyncHandler(async (req, res) => {
 
 export const refresh = asyncHandler(async (req, res) => {
   const token = req.body.refreshToken || req.headers['x-refresh-token'];
-  const result = await authService.refreshAccessToken(token);
+  const tenantId = req.body.tenantId ?? null;
+  const result = await authService.refreshAccessToken(token, tenantId);
   res.json({
     success: true,
     data: result,
@@ -32,7 +33,7 @@ export const refresh = asyncHandler(async (req, res) => {
 });
 
 export const me = asyncHandler(async (req, res) => {
-  const user = authService.getUserById(req.user.sub);
+  const user = await authService.getUserById(req.user.sub);
   if (!user) {
     throw ApiError.notFound('User not found');
   }

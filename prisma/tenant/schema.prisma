@@ -1,0 +1,37 @@
+// Tenant database schema. Same structure for every tenant's isolated DB.
+// Connection URL is overridden at runtime via getTenantClient(tenantId).
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../../src/generated/tenant"
+  previewFeatures = []
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("TENANT_DATABASE_URL")
+}
+
+// Tenant-specific data lives here. Add consent/business models as needed.
+model Consent {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id") // reference to master User id
+  type        String
+  granted     Boolean  @default(true)
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("consents")
+}
+
+// Feature: applications created by users (user_id = master users.id)
+model Application {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id") // master User id who created this
+  name        String
+  status      String   @default("draft")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("applications")
+}

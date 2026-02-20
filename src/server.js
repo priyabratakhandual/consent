@@ -5,6 +5,8 @@ import { fileURLToPath } from 'url';
 import app from './app.js';
 import config from './config/index.js';
 import logger from './utils/logger.js';
+import { connectMaster, disconnectMaster } from './db/master.js';
+import { disconnectAllTenantClients } from './db/tenant.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -34,6 +36,15 @@ async function start() {
   setupExceptionHandlers();
   await ensureLogsDir();
 
+  if (config.database?.masterUrl) {
+    try {
+      await connectMaster();
+    } catch (err) {
+      logger.error('Master database connection failed', { message: err.message });
+      process.exit(1);
+    }
+  }
+
   const server = app.listen(config.port, () => {
     logger.info(`Server listening on port ${config.port}`, {
       env: config.env,
@@ -42,9 +53,15 @@ async function start() {
   });
 
   // Graceful shutdown
-  const shutdown = (signal) => {
+  const shutdown = async (signal) => {
     logger.info(`${signal} received, shutting down gracefully`);
-    server.close(() => {
+    server.close(async () => {
+      try {
+        await disconnectAllTenantClients();
+        await disconnectMaster();
+      } catch (e) {
+        logger.warn('Shutdown disconnect error', { message: e?.message });
+      }
       logger.info('HTTP server closed');
       process.exit(0);
     });

@@ -6,7 +6,14 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "prisma:generate": "npx prisma generate --schema=prisma/schema.prisma && npx prisma generate --schema=prisma/tenant/schema.prisma",
+    "prisma:generate:master": "npx prisma generate --schema=prisma/schema.prisma",
+    "prisma:generate:tenant": "npx prisma generate --schema=prisma/tenant/schema.prisma",
+    "prisma:migrate:master": "npx prisma migrate dev --schema=prisma/schema.prisma",
+    "prisma:migrate:tenant": "npx prisma migrate dev --schema=prisma/tenant/schema.prisma",
+    "prisma:studio:master": "npx prisma studio --schema=prisma/schema.prisma --port 5555",
+    "postinstall": "npm run prisma:generate"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -15,6 +22,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@prisma/client": "^6.0.0",
+    "pg": "^8.13.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -26,6 +35,7 @@
     "winston": "^3.14.2"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "nodemon": "^3.1.0",
+    "prisma": "^6.0.0"
   }
 }
