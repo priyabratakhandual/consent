@@ -20,7 +20,7 @@ export const corsMiddleware = cors({
   origin: config.cors.origin === '*' ? true : config.cors.origin.split(',').map((o) => o.trim()),
   credentials: config.cors.credentials,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Id'],
 });
 
 /**

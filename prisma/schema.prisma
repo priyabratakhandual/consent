@@ -1,4 +1,5 @@
-// Master database: auth + tenant registry. All login/signup use this DB.
+// Master database: identity (business users) + tenant registry.
+// One DB for all users; each Tenant has its own isolated DB (database_url).
 generator client {
   provider        = "prisma-client-js"
   output          = "../src/generated/master"
@@ -10,6 +11,7 @@ datasource db {
   url      = env("MASTER_DATABASE_URL")
 }
 
+// Business user (signs up, logs in). Each gets one tenant (isolated DB) auto-created on signup.
 model User {
   id           String       @id @default(uuid())
   email        String       @unique
@@ -22,12 +24,13 @@ model User {
   @@map("users")
 }
 
+// One row per tenant (business). database_url = connection to that tenant's isolated PostgreSQL DB.
 model Tenant {
   id           String       @id @default(uuid())
   name         String
-  slug         String       @unique // e.g. "acme-corp" for DB name tenant_acme_corp
-  databaseUrl  String       @map("database_url") // Full PostgreSQL URL to this tenant's isolated DB
-  status       String       @default("active") // active | suspended
+  slug         String       @unique
+  databaseUrl  String       @map("database_url")
+  status       String       @default("active")
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
   userTenants  UserTenant[]
@@ -38,7 +41,7 @@ model Tenant {
 model UserTenant {
   userId    String   @map("user_id")
   tenantId  String   @map("tenant_id")
-  role      String   @default("member") // owner | admin | member
+  role      String   @default("member")
   createdAt DateTime @default(now()) @map("created_at")
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)

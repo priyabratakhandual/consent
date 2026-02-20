@@ -4,9 +4,11 @@ import config from '../config/index.js';
 import { ApiError } from '../utils/ApiError.js';
 import logger from '../utils/logger.js';
 import masterDb from '../db/master.js';
+import { provisionTenant } from './tenant.service.js';
 
 /**
- * Register a new user in the master database.
+ * Register a new business user in the master DB and auto-provision one tenant (isolated DB) for them
+ * so they can create consent forms immediately after signup.
  */
 export async function register(email, password, name = null) {
   const normalizedEmail = email.trim().toLowerCase();
@@ -28,7 +30,20 @@ export async function register(email, password, name = null) {
       name: name?.trim() || null,
     },
   });
-  logger.info('User registered', { email: normalizedEmail, userId: user.id });
+
+  const displayName = name?.trim() || normalizedEmail.split('@')[0] || 'Workspace';
+  const slug = `biz-${user.id.replace(/-/g, '').slice(0, 12)}`;
+  try {
+    await provisionTenant(
+      { name: `${displayName}'s Workspace`, slug },
+      user.id
+    );
+  } catch (err) {
+    logger.error('Auto-provision tenant failed after signup', { userId: user.id, message: err.message });
+    throw ApiError.internal('Account created but workspace setup failed. Please contact support.');
+  }
+
+  logger.info('User registered and tenant provisioned', { email: normalizedEmail, userId: user.id });
   return {
     id: user.id,
     email: user.email,

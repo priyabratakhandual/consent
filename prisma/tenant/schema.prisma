@@ -1,5 +1,5 @@
-// Tenant database schema. Same structure for every tenant's isolated DB.
-// Connection URL is overridden at runtime via getTenantClient(tenantId).
+// Tenant database schema. Same structure in every tenant's isolated DB.
+// URL is overridden at runtime via getTenantClient(tenantId) / Tenant.database_url.
 generator client {
   provider        = "prisma-client-js"
   output          = "../../src/generated/tenant"
@@ -11,10 +11,10 @@ datasource db {
   url      = env("TENANT_DATABASE_URL")
 }
 
-// Tenant-specific data lives here. Add consent/business models as needed.
+// Consent records (consent forms) for this tenant only. user_id = master User id.
 model Consent {
   id          String   @id @default(uuid())
-  userId      String   @map("user_id") // reference to master User id
+  userId      String   @map("user_id")
   type        String
   granted     Boolean  @default(true)
   metadata    Json?
@@ -24,10 +24,10 @@ model Consent {
   @@map("consents")
 }
 
-// Feature: applications created by users (user_id = master users.id)
+// Optional: applications / other tenant-scoped models (user_id = master User id).
 model Application {
   id          String   @id @default(uuid())
-  userId      String   @map("user_id") // master User id who created this
+  userId      String   @map("user_id")
   name        String
   status      String   @default("draft")
   createdAt   DateTime @default(now()) @map("created_at")
