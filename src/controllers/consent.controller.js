@@ -42,4 +42,21 @@ export const create = asyncHandler(async (req, res) => {
   });
 });
 
-export default { list, getById, create };
+export const update = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { granted } = req.body;
+  const consent = await req.tenantClient.consent.findUnique({ where: { id } });
+  if (!consent) {
+    throw ApiError.notFound('Consent not found');
+  }
+  const updated = await req.tenantClient.consent.update({
+    where: { id },
+    data: { granted: typeof granted === 'boolean' ? granted : consent.granted },
+  });
+  res.json({
+    success: true,
+    data: { consent: updated },
+  });
+});
+
+export default { list, getById, create, update };

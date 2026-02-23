@@ -12,5 +12,6 @@ router.use(requireTenant);
 router.get('/', consentController.list);
 router.get('/:id', consentController.getById);
 router.post('/', validateCreateConsent, consentController.create);
+router.patch('/:id', consentController.update);
 
 export default router;
