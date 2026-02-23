@@ -1,5 +1,5 @@
-// Master database: identity (business users) + tenant registry.
-// One DB for all users; each Tenant has its own isolated DB (database_url).
+// Master database: tenants, tenant config, identity (users) + user-tenant membership.
+// One DB for all; each Tenant can have its own isolated DB (database_url) for tenant data.
 generator client {
   provider        = "prisma-client-js"
   output          = "../src/generated/master"
@@ -11,41 +11,65 @@ datasource db {
   url      = env("MASTER_DATABASE_URL")
 }
 
-// Business user (signs up, logs in). Each gets one tenant (isolated DB) auto-created on signup.
-model User {
-  id           String       @id @default(uuid())
-  email        String       @unique
-  passwordHash String       @map("password_hash")
-  name         String?
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
-  userTenants UserTenant[]
+// ---------------------------------------------------------------------------
+// 3. Tenant & Security Tables
+// ---------------------------------------------------------------------------
 
-  @@map("users")
-}
-
-// One row per tenant (business). database_url = connection to that tenant's isolated PostgreSQL DB.
 model Tenant {
-  id           String       @id @default(uuid())
-  name         String
-  slug         String       @unique
-  databaseUrl  String       @map("database_url")
-  status       String       @default("active")
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
-  userTenants  UserTenant[]
+  id          String   @id @default(uuid())
+  name        String
+  status      String   @default("ACTIVE") // ACTIVE, SUSPENDED, TERMINATED
+  slug        String   @unique // for routing / display
+  databaseUrl String?  @map("database_url") // optional; if set, tenant has isolated DB
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  users               User[]
+  tenantConfiguration TenantConfiguration?
 
   @@map("tenants")
 }
 
-model UserTenant {
-  userId    String   @map("user_id")
-  tenantId  String   @map("tenant_id")
-  role      String   @default("member")
-  createdAt DateTime @default(now()) @map("created_at")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+model TenantConfiguration {
+  id                         String   @id @default(uuid())
+  tenantId                   String   @unique @map("tenant_id")
+  defaultConsentValidityDays Int?     @map("default_consent_validity_days")
+  retentionPolicyDays        Int?     @map("retention_policy_days")
+  webhookUrl                 String?  @map("webhook_url")
+  webhookSecret              String?  @map("webhook_secret")
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
 
-  @@id([userId, tenantId])
-  @@map("user_tenants")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_configurations")
+}
+
+// Users (admin/operators). One row per user per tenant; UNIQUE(tenant_id, email).
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  email        String
+  passwordHash String   @map("password_hash")
+  role         String // SUPER_ADMIN, TENANT_ADMIN, OPERATOR, AUDITOR
+  status       String   @default("ACTIVE")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+// predefined templates for a consent form
+model Template {
+  id          String @id @default(uuid())
+  title       String @map("title")
+  description String @map("description")
+  content     Json   @map("content")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("templates")
 }

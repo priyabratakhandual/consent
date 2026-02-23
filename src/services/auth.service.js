@@ -7,8 +7,8 @@ import masterDb from '../db/master.js';
 import { provisionTenant } from './tenant.service.js';
 
 /**
- * Register a new business user in the master DB and auto-provision one tenant (isolated DB) for them
- * so they can create consent forms immediately after signup.
+ * Register: create one tenant (isolated DB) and one user in that tenant so they can use the app immediately.
+ * User model is tenant-scoped (one row per user per tenant).
  */
 export async function register(email, password, name = null) {
   const normalizedEmail = email.trim().toLowerCase();
@@ -18,50 +18,70 @@ export async function register(email, password, name = null) {
   if (password.length < 8) {
     throw ApiError.badRequest('Password must be at least 8 characters');
   }
-  const existing = await masterDb.user.findUnique({ where: { email: normalizedEmail } });
-  if (existing) {
-    throw ApiError.conflict('User with this email already exists');
-  }
   const passwordHash = await bcrypt.hash(password, config.bcryptRounds);
+  const displayName = name?.trim() || normalizedEmail.split('@')[0] || 'Workspace';
+  const slug = `biz-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  let tenant;
+  try {
+    tenant = await provisionTenant({ name: `${displayName}'s Workspace`, slug });
+  } catch (err) {
+    if (err.code === 'P2002' || err.message?.includes('exists')) {
+      throw ApiError.conflict('Tenant slug already exists; try again.');
+    }
+    logger.error('Auto-provision tenant failed at signup', { message: err.message });
+    throw ApiError.internal('Workspace setup failed. Please contact support.');
+  }
+  const existingInTenant = await masterDb.user.findUnique({
+    where: { tenantId_email: { tenantId: tenant.id, email: normalizedEmail } },
+  });
+  if (existingInTenant) {
+    throw ApiError.conflict('User with this email already exists in this workspace');
+  }
   const user = await masterDb.user.create({
     data: {
+      tenantId: tenant.id,
       email: normalizedEmail,
       passwordHash,
-      name: name?.trim() || null,
+      role: 'TENANT_ADMIN',
+      status: 'ACTIVE',
     },
   });
-
-  const displayName = name?.trim() || normalizedEmail.split('@')[0] || 'Workspace';
-  const slug = `biz-${user.id.replace(/-/g, '').slice(0, 12)}`;
-  try {
-    await provisionTenant(
-      { name: `${displayName}'s Workspace`, slug },
-      user.id
-    );
-  } catch (err) {
-    logger.error('Auto-provision tenant failed after signup', { userId: user.id, message: err.message });
-    throw ApiError.internal('Account created but workspace setup failed. Please contact support.');
-  }
-
-  logger.info('User registered and tenant provisioned', { email: normalizedEmail, userId: user.id });
+  logger.info('User registered and tenant provisioned', { email: normalizedEmail, userId: user.id, tenantId: tenant.id });
+  const accessToken = jwt.sign(
+    { sub: user.id, email: user.email, tenantId: tenant.id },
+    config.jwt.secret,
+    { expiresIn: config.jwt.accessExpiry }
+  );
+  const refreshToken = jwt.sign(
+    { sub: user.id, type: 'refresh' },
+    config.jwt.refreshSecret,
+    { expiresIn: config.jwt.refreshExpiry }
+  );
   return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    createdAt: user.createdAt,
+    user: { id: user.id, email: user.email },
+    accessToken,
+    refreshToken,
+    expiresIn: config.jwt.accessExpiry,
+    tenantId: tenant.id,
   };
 }
 
 /**
- * Login against master DB and return access + refresh tokens.
- * Optionally include tenantId in token if user has exactly one tenant (or pass tenantId to scope to one).
+ * Login: find User by email (and optional tenantId). User is tenant-scoped; same email can exist in multiple tenants.
+ * Returns access + refresh tokens with tenantId in payload when applicable.
  */
 export async function login(email, password, tenantId = null) {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail || !password) {
     throw ApiError.badRequest('Email and password are required');
   }
-  const user = await masterDb.user.findUnique({ where: { email: normalizedEmail } });
+  const where = tenantId
+    ? { email: normalizedEmail, tenantId }
+    : { email: normalizedEmail };
+  const user = await masterDb.user.findFirst({
+    where,
+    include: { tenant: true },
+  });
   if (!user) {
     throw ApiError.unauthorized('Invalid email or password');
   }
@@ -69,21 +89,15 @@ export async function login(email, password, tenantId = null) {
   if (!valid) {
     throw ApiError.unauthorized('Invalid email or password');
   }
-  let resolvedTenantId = tenantId;
-  if (!resolvedTenantId) {
-    const ut = await masterDb.userTenant.findFirst({
-      where: { userId: user.id },
-      include: { tenant: true },
-    });
-    if (ut?.tenant?.status === 'active') {
-      resolvedTenantId = ut.tenant.id;
-    }
+  if (user.tenant?.status !== 'ACTIVE') {
+    throw ApiError.unauthorized('Tenant is not active');
   }
+  const resolvedTenantId = user.tenantId;
   const accessToken = jwt.sign(
     {
       sub: user.id,
       email: user.email,
-      ...(resolvedTenantId && { tenantId: resolvedTenantId }),
+      tenantId: resolvedTenantId,
     },
     config.jwt.secret,
     { expiresIn: config.jwt.accessExpiry }
@@ -95,16 +109,16 @@ export async function login(email, password, tenantId = null) {
   );
   logger.info('User logged in', { email: normalizedEmail, userId: user.id, tenantId: resolvedTenantId });
   return {
-    user: { id: user.id, email: user.email, name: user.name },
+    user: { id: user.id, email: user.email },
     accessToken,
     refreshToken,
     expiresIn: config.jwt.accessExpiry,
-    ...(resolvedTenantId && { tenantId: resolvedTenantId }),
+    tenantId: resolvedTenantId,
   };
 }
 
 /**
- * Refresh access token; optionally set tenantId for the new token.
+ * Refresh access token. Optionally scope to a different tenant (user must have same email in that tenant).
  */
 export async function refreshAccessToken(refreshToken, tenantId = null) {
   if (!refreshToken) {
@@ -114,25 +128,29 @@ export async function refreshAccessToken(refreshToken, tenantId = null) {
   if (decoded.type !== 'refresh') {
     throw ApiError.unauthorized('Invalid refresh token');
   }
-  const user = await masterDb.user.findUnique({ where: { id: decoded.sub } });
-  if (!user) {
+  const currentUser = await masterDb.user.findUnique({
+    where: { id: decoded.sub },
+    include: { tenant: true },
+  });
+  if (!currentUser) {
     throw ApiError.unauthorized('User not found');
   }
-  let resolvedTenantId = tenantId;
-  if (!resolvedTenantId) {
-    const ut = await masterDb.userTenant.findFirst({
-      where: { userId: user.id },
+  let user = currentUser;
+  if (tenantId && tenantId !== currentUser.tenantId) {
+    const other = await masterDb.user.findFirst({
+      where: { email: currentUser.email, tenantId },
       include: { tenant: true },
     });
-    if (ut?.tenant?.status === 'active') {
-      resolvedTenantId = ut.tenant.id;
+    if (other?.tenant?.status === 'ACTIVE') {
+      user = other;
     }
   }
+  const resolvedTenantId = user.tenantId;
   const accessToken = jwt.sign(
     {
       sub: user.id,
       email: user.email,
-      ...(resolvedTenantId && { tenantId: resolvedTenantId }),
+      tenantId: resolvedTenantId,
     },
     config.jwt.secret,
     { expiresIn: config.jwt.accessExpiry }
@@ -140,8 +158,8 @@ export async function refreshAccessToken(refreshToken, tenantId = null) {
   return {
     accessToken,
     expiresIn: config.jwt.accessExpiry,
-    user: { id: user.id, email: user.email, name: user.name },
-    ...(resolvedTenantId && { tenantId: resolvedTenantId }),
+    user: { id: user.id, email: user.email },
+    tenantId: resolvedTenantId,
   };
 }
 
@@ -151,7 +169,7 @@ export async function refreshAccessToken(refreshToken, tenantId = null) {
 export async function getUserById(id) {
   const user = await masterDb.user.findUnique({
     where: { id },
-    select: { id: true, email: true, name: true, createdAt: true },
+    select: { id: true, email: true, tenantId: true, role: true, status: true, createdAt: true },
   });
   return user;
 }

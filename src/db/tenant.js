@@ -47,7 +47,7 @@ export async function getTenantClientByTenantId(masterPrisma, tenantId) {
   const tenant = await masterPrisma.tenant.findUnique({
     where: { id: tenantId },
   });
-  if (!tenant || tenant.status !== 'active') {
+  if (!tenant || tenant.status !== 'ACTIVE') {
     throw new Error(`Tenant not found or inactive: ${tenantId}`);
   }
   return getTenantClient(tenant.databaseUrl);

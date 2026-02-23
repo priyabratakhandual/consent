@@ -55,9 +55,10 @@ export async function runTenantMigrations(tenantDatabaseUrl) {
 }
 
 /**
- * Create a new tenant: create DB, run migrations, insert Tenant row and optionally link user as owner.
+ * Create a new tenant: create DB, run migrations, insert Tenant row.
+ * If ownerUserId is provided, create a User in the new tenant with same email/password as owner (so they can switch to it).
  * @param {{ name: string, slug: string }} input
- * @param {string} [ownerUserId] - If provided, add UserTenant with role owner
+ * @param {string} [ownerUserId] - If provided, clone this user into the new tenant (same email, role TENANT_ADMIN)
  * @returns {Promise<{ id, name, slug, databaseUrl, status }>}
  */
 export async function provisionTenant(input, ownerUserId = null) {
@@ -85,17 +86,25 @@ export async function provisionTenant(input, ownerUserId = null) {
       name: name.trim(),
       slug: normalizedSlug,
       databaseUrl,
-      status: 'active',
+      status: 'ACTIVE',
     },
   });
   if (ownerUserId) {
-    await masterDb.userTenant.create({
-      data: {
-        userId: ownerUserId,
-        tenantId: tenant.id,
-        role: 'owner',
-      },
+    const owner = await masterDb.user.findUnique({
+      where: { id: ownerUserId },
+      select: { email: true, passwordHash: true },
     });
+    if (owner) {
+      await masterDb.user.create({
+        data: {
+          tenantId: tenant.id,
+          email: owner.email,
+          passwordHash: owner.passwordHash,
+          role: 'TENANT_ADMIN',
+          status: 'ACTIVE',
+        },
+      });
+    }
   }
   logger.info('Tenant provisioned', { tenantId: tenant.id, slug: normalizedSlug });
   return {
@@ -108,33 +117,50 @@ export async function provisionTenant(input, ownerUserId = null) {
 }
 
 /**
- * List tenants the user has access to.
- * @param {string} userId
+ * List tenants the user has access to (same email in multiple tenants = multiple User rows).
+ * @param {string} userId - current user id (from JWT sub)
  */
 export async function listTenantsForUser(userId) {
-  const userTenants = await masterDb.userTenant.findMany({
-    where: { userId },
+  const current = await masterDb.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+  if (!current) return [];
+  const users = await masterDb.user.findMany({
+    where: { email: current.email },
     include: { tenant: true },
   });
-  return userTenants.map((ut) => ({
-    id: ut.tenant.id,
-    name: ut.tenant.name,
-    slug: ut.tenant.slug,
-    status: ut.tenant.status,
-    role: ut.role,
-  }));
+  return users
+    .filter((u) => u.tenant?.status === 'ACTIVE')
+    .map((u) => ({
+      id: u.tenant.id,
+      name: u.tenant.name,
+      slug: u.tenant.slug,
+      status: u.tenant.status,
+      role: u.role,
+    }));
 }
 
 /**
  * Assert user has access to tenant and return tenant record.
+ * User belongs to one tenant per row; for "switch" we check same email in target tenant.
  */
 export async function getTenantForUser(userId, tenantId) {
-  const ut = await masterDb.userTenant.findFirst({
-    where: { userId, tenantId },
+  const user = await masterDb.user.findUnique({
+    where: { id: userId },
     include: { tenant: true },
   });
-  if (!ut || ut.tenant.status !== 'active') {
+  if (!user) throw ApiError.forbidden('User not found');
+  if (user.tenantId === tenantId) {
+    if (user.tenant?.status !== 'ACTIVE') throw ApiError.forbidden('Tenant is not active');
+    return user.tenant;
+  }
+  const other = await masterDb.user.findFirst({
+    where: { email: user.email, tenantId },
+    include: { tenant: true },
+  });
+  if (!other || other.tenant?.status !== 'ACTIVE') {
     throw ApiError.forbidden('Access to this tenant is not allowed');
   }
-  return ut.tenant;
+  return other.tenant;
 }
