@@ -12,22 +12,31 @@ datasource db {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Consent Template Module
+// 1. Consent Module
 // ---------------------------------------------------------------------------
 
-model ConsentTemplate {
-  id             String    @id @default(uuid())
+model Consents {
+  id             String  @id @default(uuid())
+  // Optional reference to a master Template.id (from master DB), if used
+  templateId     String? @map("template_id")
   name           String
   description    String?
-  lifecycleState String    @default("DRAFT") @map("lifecycle_state") // DRAFT, PUBLISHED, ARCHIVED
-  createdBy      String?   @map("created_by") // master User id
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  type           String
+  lifecycleState String  @default("DRAFT") @map("lifecycle_state") // DRAFT, PUBLISHED, ARCHIVED
+  metadata       Json?
 
-  versions ConsentTemplateVersion[]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@map("consent_templates")
+  versions   ConsentTemplateVersion[]
+  shareLinks ConsentShareLink[]
+
+  @@map("consents")
 }
+
+// ---------------------------------------------------------------------------
+// 2. Consent Template Version
+// ---------------------------------------------------------------------------
 
 model ConsentTemplateVersion {
   id                String    @id @default(uuid())
@@ -41,7 +50,7 @@ model ConsentTemplateVersion {
   publishedAt       DateTime? @map("published_at")
   createdAt         DateTime  @default(now()) @map("created_at")
 
-  template ConsentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  consent   Consents          @relation(fields: [templateId], references: [id], onDelete: Cascade)
   instances ConsentInstance[]
 
   @@unique([templateId, versionNumber])
@@ -49,18 +58,18 @@ model ConsentTemplateVersion {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Consent Execution Layer
+// 5.Represents consent requirement for a specific user.
 // ---------------------------------------------------------------------------
 
 model ConsentInstance {
-  id                 String    @id @default(uuid())
-  templateVersionId  String    @map("template_version_id")
-  subjectIdentifier  String    @map("subject_identifier") // e.g. MRN, user_id, ABHA ID
-  purpose            String?
-  status             String    @default("PENDING") @map("status") // PENDING, ACTIVE, EXPIRED, REVOKED
-  validUntil         DateTime? @map("valid_until")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  id                String    @id @default(uuid())
+  templateVersionId String    @map("template_version_id")
+  subjectIdentifier String    @map("subject_identifier") // e.g. MRN, user_id, ABHA ID
+  purpose           String?
+  status            String    @default("PENDING") @map("status") // PENDING, ACTIVE, EXPIRED, REVOKED
+  validUntil        DateTime? @map("valid_until")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   templateVersion ConsentTemplateVersion @relation(fields: [templateVersionId], references: [id])
   acceptance      ConsentAcceptance?
@@ -78,14 +87,14 @@ model ConsentInstance {
 // ---------------------------------------------------------------------------
 
 model ConsentAcceptance {
-  id                 String   @id @default(uuid())
-  consentInstanceId  String   @unique @map("consent_instance_id")
-  acceptedAt         DateTime @default(now()) @map("accepted_at")
-  ipAddress          String?  @map("ip_address")
-  deviceInfo         String?  @map("device_info")
-  signatureData      String?  @map("signature_data")
-  otpVerified        Boolean  @default(false) @map("otp_verified")
-  receiptUrl         String?  @map("receipt_url")
+  id                String   @id @default(uuid())
+  consentInstanceId String   @unique @map("consent_instance_id")
+  acceptedAt        DateTime @default(now()) @map("accepted_at")
+  ipAddress         String?  @map("ip_address")
+  deviceInfo        String?  @map("device_info")
+  signatureData     String?  @map("signature_data")
+  otpVerified       Boolean  @default(false) @map("otp_verified")
+  receiptUrl        String?  @map("receipt_url")
 
   consentInstance ConsentInstance @relation(fields: [consentInstanceId], references: [id], onDelete: Cascade)
 
@@ -110,21 +119,57 @@ model ConsentRevocation {
 }
 
 // ---------------------------------------------------------------------------
+// 5. Consent Share Links (per template/form)
+// ---------------------------------------------------------------------------
+
+model ConsentShareLink {
+  id         String    @id @default(uuid())
+  templateId String    @map("template_id")
+  token      String    @unique
+  visibility String    @default("PUBLIC") @map("visibility") // PUBLIC, PRIVATE
+  status     String    @default("ACTIVE") @map("status") // ACTIVE, REVOKED, EXPIRED
+  expiresAt  DateTime? @map("expires_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  consent Consents             @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  apiKeys ConsentShareApiKey[]
+
+  @@index([templateId])
+  @@map("consent_share_links")
+}
+
+model ConsentShareApiKey {
+  id        String    @id @default(uuid())
+  linkId    String    @map("link_id")
+  name      String    @map("name")
+  valueHash String    @map("value_hash")
+  status    String    @default("ACTIVE") @map("status") // ACTIVE, REVOKED, EXPIRED
+  createdAt DateTime  @default(now()) @map("created_at")
+  expiresAt DateTime? @map("expires_at")
+
+  link ConsentShareLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@index([linkId])
+  @@map("consent_share_api_keys")
+}
+
+// ---------------------------------------------------------------------------
 // 8. Audit & Compliance
 // ---------------------------------------------------------------------------
 
 model AuditEvent {
-  id          String   @id @default(uuid())
-  entityType  String   @map("entity_type") // TEMPLATE, CONSENT_INSTANCE, USER
-  entityId    String   @map("entity_id")
-  action      String
-  performedBy String?  @map("performed_by")
-  oldData     Json?    @map("old_data")
-  newData     Json?    @map("new_data")
-  ipAddress   String?  @map("ip_address")
-  createdAt   DateTime @default(now()) @map("created_at")
-  hash        String
-  previousHash String? @map("previous_hash")
+  id           String   @id @default(uuid())
+  entityType   String   @map("entity_type") // TEMPLATE, CONSENT_INSTANCE, USER
+  entityId     String   @map("entity_id")
+  action       String
+  performedBy  String?  @map("performed_by")
+  oldData      Json?    @map("old_data")
+  newData      Json?    @map("new_data")
+  ipAddress    String?  @map("ip_address")
+  createdAt    DateTime @default(now()) @map("created_at")
+  hash         String
+  previousHash String?  @map("previous_hash")
 
   @@index([entityType])
   @@index([createdAt])
@@ -137,9 +182,9 @@ model AuditEvent {
 
 model WebhookSubscription {
   id        String   @id @default(uuid())
-  targetUrl String  @map("target_url")
-  secretKey String  @map("secret_key")
-  active    Boolean @default(true)
+  targetUrl String   @map("target_url")
+  secretKey String   @map("secret_key")
+  active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
 
   events WebhookEvent[]
@@ -164,29 +209,3 @@ model WebhookEvent {
   @@map("webhook_events")
 }
 
-// ---------------------------------------------------------------------------
-// Legacy / backward compatibility (existing Consent API)
-// ---------------------------------------------------------------------------
-
-model Consent {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  type      String
-  granted   Boolean  @default(true)
-  metadata  Json?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@map("consents")
-}
-
-model Application {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  name      String
-  status    String   @default("draft")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@map("applications")
-}

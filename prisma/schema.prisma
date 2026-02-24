@@ -21,28 +21,17 @@ model Tenant {
   status      String   @default("ACTIVE") // ACTIVE, SUSPENDED, TERMINATED
   slug        String   @unique // for routing / display
   databaseUrl String?  @map("database_url") // optional; if set, tenant has isolated DB
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  users               User[]
-  tenantConfiguration TenantConfiguration?
-
-  @@map("tenants")
-}
-
-model TenantConfiguration {
-  id                         String   @id @default(uuid())
-  tenantId                   String   @unique @map("tenant_id")
-  defaultConsentValidityDays Int?     @map("default_consent_validity_days")
-  retentionPolicyDays        Int?     @map("retention_policy_days")
-  webhookUrl                 String?  @map("webhook_url")
-  webhookSecret              String?  @map("webhook_secret")
+  // Per-tenant configuration (inlined from TenantConfiguration)
+  defaultConsentValidityDays Int?    @map("default_consent_validity_days")
+  retentionPolicyDays        Int?    @map("retention_policy_days")
+  webhookUrl                 String? @map("webhook_url")
+  webhookSecret              String? @map("webhook_secret")
   createdAt                  DateTime @default(now()) @map("created_at")
   updatedAt                  DateTime @updatedAt @map("updated_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users User[]
 
-  @@map("tenant_configurations")
+  @@map("tenants")
 }
 
 // Users (admin/operators). One row per user per tenant; UNIQUE(tenant_id, email).

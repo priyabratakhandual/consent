@@ -1,3 +1,4 @@
--- Soft delete: add deleted_at to consents
-ALTER TABLE "consents" ADD COLUMN "deleted_at" TIMESTAMP(3);
-CREATE INDEX "consents_deleted_at_idx" ON "consents"("deleted_at");
+-- 20260224130000_add_consent_deleted_at
+-- This migration was originally adding soft-delete support (`deleted_at`) to the `consents` table.
+-- That column and its index were later removed from the data model.
+-- We intentionally leave this migration empty so the final schema does not include `deleted_at`.
