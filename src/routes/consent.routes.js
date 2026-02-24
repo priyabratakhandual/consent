@@ -10,8 +10,10 @@ router.use(authenticate);
 router.use(requireTenant);
 
 router.get('/', consentController.list);
+router.get('/:id/versions', consentController.getVersions);
 router.get('/:id', consentController.getById);
 router.post('/', validateCreateConsent, consentController.create);
 router.patch('/:id', consentController.update);
+router.delete('/:id', consentController.softDelete);
 
 export default router;
