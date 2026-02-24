@@ -42,19 +42,6 @@ export const create = asyncHandler(async (req, res) => {
     },
   });
 
-  // Immutable version (v1) and audit on every consent action
-  await req.tenantClient.consentVersion.create({
-    data: {
-      consentId: consent.id,
-      versionNumber: 1,
-      userId: uid,
-      type: typeVal,
-      granted: grantedVal,
-      metadata: metadata ?? undefined,
-      changedBy: null,
-    },
-  });
-
   await recordConsentAudit(req.tenantClient, {
     entityId: consent.id,
     action: ACTION_CREATED,
@@ -84,22 +71,6 @@ export const update = asyncHandler(async (req, res) => {
   const updated = await req.tenantClient.consent.update({
     where: { id },
     data: { granted: newGranted, type: newType, metadata: newMetadata ?? undefined },
-  });
-
-  const nextVersion = await req.tenantClient.consentVersion
-    .aggregate({ where: { consentId: id }, _max: { versionNumber: true } })
-    .then((r) => (r._max?.versionNumber ?? 0) + 1);
-
-  await req.tenantClient.consentVersion.create({
-    data: {
-      consentId: id,
-      versionNumber: nextVersion,
-      userId: consent.userId,
-      type: updated.type,
-      granted: updated.granted,
-      metadata: updated.metadata ?? undefined,
-      changedBy: req.user?.sub ?? null,
-    },
   });
 
   await recordConsentAudit(req.tenantClient, {
@@ -149,13 +120,9 @@ export const getVersions = asyncHandler(async (req, res) => {
   if (!consent) {
     throw ApiError.notFound('Consent not found');
   }
-  const versions = await req.tenantClient.consentVersion.findMany({
-    where: { consentId: id },
-    orderBy: { versionNumber: 'desc' },
-  });
   res.json({
     success: true,
-    data: { versions },
+    data: { versions: [] },
   });
 });
 

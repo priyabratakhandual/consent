@@ -177,29 +177,7 @@ model Consent {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  versions ConsentVersion[]
-
   @@map("consents")
-}
-
-// Immutable version snapshot per consent (version control). One row per create/update.
-model ConsentVersion {
-  id             String   @id @default(uuid())
-  consentId      String   @map("consent_id")
-  versionNumber  Int      @map("version_number")
-  userId         String   @map("user_id")
-  type           String
-  granted        Boolean
-  metadata       Json?
-  changedBy      String?  @map("changed_by") // user id who made this version (null on create)
-  createdAt      DateTime @default(now()) @map("created_at")
-
-  consent Consent @relation(fields: [consentId], references: [id], onDelete: Cascade)
-
-  @@unique([consentId, versionNumber])
-  @@index([consentId])
-  @@index([userId])
-  @@map("consent_versions")
 }
 
 model Application {

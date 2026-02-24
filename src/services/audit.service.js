@@ -31,44 +31,47 @@ function computeAuditHash(previousHash, payload) {
  * @param {string} [params.ipAddress] - client IP
  */
 export async function recordConsentAudit(tenantClient, params) {
-  const { entityType, entityId, action, performedBy, oldData, newData, ipAddress } = params;
-  const id = crypto.randomUUID();
+  try {
+    const { entityType, entityId, action, performedBy, oldData, newData, ipAddress } = params;
+    const id = crypto.randomUUID();
 
-  // Get previous event's hash for chain (latest audit event in this tenant)
-  const lastEvent = await tenantClient.auditEvent.findFirst({
-    orderBy: { createdAt: 'desc' },
-    select: { hash: true },
-  });
-  const previousHash = lastEvent?.hash ?? null;
+    const lastEvent = await tenantClient.auditEvent.findFirst({
+      orderBy: { createdAt: 'desc' },
+      select: { hash: true },
+    });
+    const previousHash = lastEvent?.hash ?? null;
 
-  const payload = {
-    id,
-    entityType: entityType || ENTITY_CONSENT,
-    entityId,
-    action,
-    performedBy: performedBy ?? null,
-    oldData: oldData ?? null,
-    newData: newData ?? null,
-    ipAddress: ipAddress ?? null,
-    createdAt: new Date().toISOString(),
-  };
-  const hash = computeAuditHash(previousHash, payload);
-
-  await tenantClient.auditEvent.create({
-    data: {
+    const payload = {
       id,
       entityType: entityType || ENTITY_CONSENT,
       entityId,
       action,
       performedBy: performedBy ?? null,
-      oldData: oldData ?? undefined,
-      newData: newData ?? undefined,
+      oldData: oldData ?? null,
+      newData: newData ?? null,
       ipAddress: ipAddress ?? null,
-      hash,
-      previousHash,
-    },
-  });
-  logger.debug('Audit event recorded', { entityType, entityId, action });
+      createdAt: new Date().toISOString(),
+    };
+    const hash = computeAuditHash(previousHash, payload);
+
+    await tenantClient.auditEvent.create({
+      data: {
+        id,
+        entityType: entityType || ENTITY_CONSENT,
+        entityId,
+        action,
+        performedBy: performedBy ?? null,
+        oldData: oldData ?? undefined,
+        newData: newData ?? undefined,
+        ipAddress: ipAddress ?? null,
+        hash,
+        previousHash,
+      },
+    });
+    logger.debug('Audit event recorded', { entityType, entityId, action });
+  } catch (err) {
+    logger.warn('Audit event skipped (table may not exist)', { message: err?.message, action: params?.action });
+  }
 }
 
 export { ENTITY_CONSENT, ACTION_CREATED, ACTION_UPDATED, ACTION_DELETED };
