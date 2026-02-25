@@ -17,10 +17,13 @@ export function validateRegister(req, res, next) {
 }
 
 export function validateLogin(req, res, next) {
-  const { email, password } = req.body ?? {};
+  const { email, password, tenantId } = req.body ?? {};
   const errors = [];
   if (!email || typeof email !== 'string') errors.push('email is required');
   if (!password || typeof password !== 'string') errors.push('password is required');
+  if (tenantId !== undefined && tenantId !== null && typeof tenantId !== 'string') {
+    errors.push('tenantId must be a string');
+  }
   if (errors.length) {
     return next(ApiError.badRequest('Validation failed', errors));
   }

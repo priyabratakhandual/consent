@@ -58,7 +58,13 @@ export async function register(email, password, name = null) {
     { expiresIn: config.jwt.refreshExpiry }
   );
   return {
-    user: { id: user.id, email: user.email },
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+    },
+    tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug },
     accessToken,
     refreshToken,
     expiresIn: config.jwt.accessExpiry,
@@ -89,6 +95,9 @@ export async function login(email, password, tenantId = null) {
   if (!valid) {
     throw ApiError.unauthorized('Invalid email or password');
   }
+  if (user.status !== 'ACTIVE') {
+    throw ApiError.unauthorized('Account is not active');
+  }
   if (user.tenant?.status !== 'ACTIVE') {
     throw ApiError.unauthorized('Tenant is not active');
   }
@@ -109,7 +118,13 @@ export async function login(email, password, tenantId = null) {
   );
   logger.info('User logged in', { email: normalizedEmail, userId: user.id, tenantId: resolvedTenantId });
   return {
-    user: { id: user.id, email: user.email },
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+    },
+    tenant: user.tenant ? { id: user.tenant.id, name: user.tenant.name, slug: user.tenant.slug } : null,
     accessToken,
     refreshToken,
     expiresIn: config.jwt.accessExpiry,
@@ -135,6 +150,9 @@ export async function refreshAccessToken(refreshToken, tenantId = null) {
   if (!currentUser) {
     throw ApiError.unauthorized('User not found');
   }
+  if (currentUser.status !== 'ACTIVE') {
+    throw ApiError.unauthorized('Account is not active');
+  }
   let user = currentUser;
   if (tenantId && tenantId !== currentUser.tenantId) {
     const other = await masterDb.user.findFirst({
@@ -158,18 +176,42 @@ export async function refreshAccessToken(refreshToken, tenantId = null) {
   return {
     accessToken,
     expiresIn: config.jwt.accessExpiry,
-    user: { id: user.id, email: user.email },
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+    },
+    tenant: user.tenant ? { id: user.tenant.id, name: user.tenant.name, slug: user.tenant.slug } : null,
     tenantId: resolvedTenantId,
   };
 }
 
 /**
  * Get user by id from master DB (for protected routes).
+ * Returns user and tenant info for /me and tenant-scoped UI.
  */
 export async function getUserById(id) {
   const user = await masterDb.user.findUnique({
     where: { id },
-    select: { id: true, email: true, tenantId: true, role: true, status: true, createdAt: true },
+    select: {
+      id: true,
+      email: true,
+      tenantId: true,
+      role: true,
+      status: true,
+      createdAt: true,
+      tenant: { select: { id: true, name: true, slug: true, status: true } },
+    },
   });
-  return user;
+  if (!user) return null;
+  return {
+    id: user.id,
+    email: user.email,
+    tenantId: user.tenantId,
+    role: user.role,
+    status: user.status,
+    createdAt: user.createdAt,
+    tenant: user.tenant ? { id: user.tenant.id, name: user.tenant.name, slug: user.tenant.slug, status: user.tenant.status } : null,
+  };
 }

@@ -12,75 +12,47 @@ datasource db {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Consent Module
+// 1. Consent Template (form) – tenant-scoped
 // ---------------------------------------------------------------------------
 
-model Consents {
+model Consent {
   id             String  @id @default(uuid())
-  // Optional reference to a master Template.id (from master DB), if used
+  userId         String  @map("user_id")
   templateId     String? @map("template_id")
   name           String
   description    String?
   type           String
-  lifecycleState String  @default("DRAFT") @map("lifecycle_state") // DRAFT, PUBLISHED, ARCHIVED
   metadata       Json?
+  lifecycleState String  @default("DRAFT") @map("lifecycle_state")
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  versions   ConsentTemplateVersion[]
-  shareLinks ConsentShareLink[]
+  expiryDate DateTime? @map("expiry_date")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
 
   @@map("consents")
 }
 
 // ---------------------------------------------------------------------------
-// 2. Consent Template Version
+// 2. Consent Audit
 // ---------------------------------------------------------------------------
 
-model ConsentTemplateVersion {
-  id                String    @id @default(uuid())
-  templateId        String    @map("template_id")
-  versionNumber     Int       @map("version_number")
-  consentText       String    @map("consent_text")
-  signatureType     String    @map("signature_type") // CHECKBOX, DIGITAL_SIGNATURE, OTP
-  validityDays      Int?      @map("validity_days")
-  revocationAllowed Boolean   @default(true) @map("revocation_allowed")
-  conditionalRules  Json?     @map("conditional_rules")
-  publishedAt       DateTime? @map("published_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
+model ConsentAudit {
+  id             String    @id @default(uuid())
+  consentId      String    @map("consent_id")
+  templateId     String    @map("template_id")
+  versionNumber  Int       @map("version_number")
+  metadata       Json?     @map("metadata")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  lifecycleState String    @default("DRAFT") @map("lifecycle_state")
+  expiryDate     DateTime? @map("expiry_date")
 
-  consent   Consents          @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  instances ConsentInstance[]
+  consent Consent @relation(fields: [consentId], references: [id], onDelete: Cascade)
 
-  @@unique([templateId, versionNumber])
-  @@map("consent_template_versions")
+  @@map("consent_audits")
 }
 
-// ---------------------------------------------------------------------------
-// 5.Represents consent requirement for a specific user.
-// ---------------------------------------------------------------------------
-
-model ConsentInstance {
-  id                String    @id @default(uuid())
-  templateVersionId String    @map("template_version_id")
-  subjectIdentifier String    @map("subject_identifier") // e.g. MRN, user_id, ABHA ID
-  purpose           String?
-  status            String    @default("PENDING") @map("status") // PENDING, ACTIVE, EXPIRED, REVOKED
-  validUntil        DateTime? @map("valid_until")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-
-  templateVersion ConsentTemplateVersion @relation(fields: [templateVersionId], references: [id])
-  acceptance      ConsentAcceptance?
-  revocations     ConsentRevocation[]
-
-  // Enforce status values (PENDING, ACTIVE, EXPIRED, REVOKED) via DB CHECK if desired:
-  // ALTER TABLE consent_instances ADD CONSTRAINT valid_status CHECK (status IN ('PENDING', 'ACTIVE', 'EXPIRED', 'REVOKED'));
-  @@index([subjectIdentifier])
-  @@index([createdAt])
-  @@map("consent_instances")
-}
+ 
 
 // ---------------------------------------------------------------------------
 // 6. Consent Acceptance
@@ -88,7 +60,7 @@ model ConsentInstance {
 
 model ConsentAcceptance {
   id                String   @id @default(uuid())
-  consentInstanceId String   @unique @map("consent_instance_id")
+  consentId         String   @map("consent_id")
   acceptedAt        DateTime @default(now()) @map("accepted_at")
   ipAddress         String?  @map("ip_address")
   deviceInfo        String?  @map("device_info")
@@ -96,8 +68,7 @@ model ConsentAcceptance {
   otpVerified       Boolean  @default(false) @map("otp_verified")
   receiptUrl        String?  @map("receipt_url")
 
-  consentInstance ConsentInstance @relation(fields: [consentInstanceId], references: [id], onDelete: Cascade)
-
+ 
   @@map("consent_acceptances")
 }
 
@@ -132,8 +103,8 @@ model ConsentShareLink {
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
-  consent Consents             @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  apiKeys ConsentShareApiKey[]
+  template ConsentTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  apiKeys  ConsentShareApiKey[]
 
   @@index([templateId])
   @@map("consent_share_links")
@@ -209,3 +180,6 @@ model WebhookEvent {
   @@map("webhook_events")
 }
 
+// ---------------------------------------------------------------------------
+// 10. Legacy Consent (per-tenant consents used by current API)
+// ---------------------------------------------------------------------------
