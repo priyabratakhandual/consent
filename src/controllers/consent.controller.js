@@ -34,8 +34,7 @@ export const getById = asyncHandler(async (req, res) => {
 });
 
 export const create = asyncHandler(async (req, res) => {
-  const { userId, type, granted = true, metadata, name, description, lifecycleState, expiryDate } = req.body;
-  const uid = userId ?? req.user?.sub;
+  const { type, granted = true, metadata, name, description, lifecycleState, expiryDate } = req.body;
   const typeVal = typeof type === 'string' ? type.trim() : type;
   const grantedVal = Boolean(granted);
   const nameVal = typeof name === 'string' && name.trim() ? name.trim() : (typeVal || 'Consent');
@@ -43,7 +42,7 @@ export const create = asyncHandler(async (req, res) => {
 
   const consent = await req.tenantClient.consent.create({
     data: {
-      userId: uid,
+      tenantId: req.tenant?.id,
       type: typeVal,
       granted: grantedVal,
       name: nameVal,
@@ -58,7 +57,7 @@ export const create = asyncHandler(async (req, res) => {
     entityId: consent.id,
     action: ACTION_CREATED,
     performedBy: req.user?.sub ?? null,
-    newData: { id: consent.id, userId: consent.userId, type: consent.type, granted: consent.granted, metadata: consent.metadata, createdAt: consent.createdAt },
+    newData: { id: consent.id, type: consent.type, granted: consent.granted, metadata: consent.metadata, createdAt: consent.createdAt },
     ipAddress: req.ip ?? req.socket?.remoteAddress ?? null,
   });
 
@@ -332,8 +331,8 @@ export const update = asyncHandler(async (req, res) => {
     entityId: id,
     action: ACTION_UPDATED,
     performedBy: req.user?.sub ?? null,
-    oldData: { id: consent.id, userId: consent.userId, type: consent.type, granted: consent.granted, metadata: consent.metadata, updatedAt: consent.updatedAt },
-    newData: { id: updated.id, userId: updated.userId, type: updated.type, granted: updated.granted, metadata: updated.metadata, updatedAt: updated.updatedAt },
+    oldData: { id: consent.id, type: consent.type, granted: consent.granted, metadata: consent.metadata, updatedAt: consent.updatedAt },
+    newData: { id: updated.id, type: updated.type, granted: updated.granted, metadata: updated.metadata, updatedAt: updated.updatedAt },
     ipAddress: req.ip ?? req.socket?.remoteAddress ?? null,
   });
 
@@ -353,7 +352,7 @@ export const softDelete = asyncHandler(async (req, res) => {
     entityId: id,
     action: ACTION_DELETED,
     performedBy: req.user?.sub ?? null,
-    oldData: { id: consent.id, userId: consent.userId, type: consent.type, granted: consent.granted, metadata: consent.metadata, updatedAt: consent.updatedAt },
+    oldData: { id: consent.id, type: consent.type, granted: consent.granted, metadata: consent.metadata, updatedAt: consent.updatedAt },
     newData: { deleted: true },
     ipAddress: req.ip ?? req.socket?.remoteAddress ?? null,
   });

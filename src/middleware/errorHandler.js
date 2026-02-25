@@ -40,6 +40,22 @@ export const errorHandler = (err, req, res, next) => {
     message = 'Token expired';
   }
 
+  // Prisma / database errors – hide low-level details from API consumers
+  // Detect by common Prisma properties: error code and clientVersion.
+  if (!err.statusCode && (typeof err.code === 'string' || err.clientVersion)) {
+    statusCode = 500;
+    message = 'Database error';
+    // In non-production, expose minimal structured details to help debugging
+    if (config.env !== 'production') {
+      details = {
+        ...(details || {}),
+        prismaCode: err.code ?? undefined,
+      };
+    } else {
+      details = null;
+    }
+  }
+
   // Validation / schema errors (e.g. from libraries)
   if (err.name === 'ValidationError') {
     statusCode = 400;

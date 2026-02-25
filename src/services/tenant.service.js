@@ -78,10 +78,21 @@ export async function provisionTenant(input, ownerUserId = null) {
   if (existing) {
     throw ApiError.conflict('Tenant with this slug already exists');
   }
-  // Database name: combine slug + short unique suffix so DB names stay unique even
-  // if similar slugs are ever re-used. This acts like a \"serial\" per user/slug.
-  const shortSuffix = Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 4);
-  const tenantDbName = `tenant_${normalizedSlug}_${shortSuffix}`;
+  // Database name pattern:
+  //   0001_tenant_rahul
+  // where:
+  //   - 0001 is a zero-padded sequential-ish number (based on current tenant count)
+  //   - rahul comes from the slug (usually derived from username/email)
+  //
+  // This is good enough for development / moderate scale. For very high
+  // concurrency you'd switch to a dedicated serial column or sequence.
+  const tenantCount = await masterDb.tenant.count();
+  const serial = String(tenantCount + 1).padStart(4, '0');
+  // strip leading prefix like \"biz-\" and take first token as username-ish part
+  const slugParts = normalizedSlug.replace(/^biz-/, '').split('-');
+  const usernamePart = slugParts[0] || 'tenant';
+  const safeUser = usernamePart.replace(/[^a-z0-9_]/g, '') || 'tenant';
+  const tenantDbName = `${serial}_tenant_${safeUser}`;
   const databaseUrl = await createTenantDatabase(masterUrl, tenantDbName);
   await runTenantMigrations(databaseUrl);
   const tenant = await masterDb.tenant.create({

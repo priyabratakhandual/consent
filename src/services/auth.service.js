@@ -19,8 +19,13 @@ export async function register(email, password, name = null) {
     throw ApiError.badRequest('Password must be at least 8 characters');
   }
   const passwordHash = await bcrypt.hash(password, config.bcryptRounds);
-  const displayName = name?.trim() || normalizedEmail.split('@')[0] || 'Workspace';
-  const slug = `biz-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const emailLocalPart = normalizedEmail.split('@')[0] || 'workspace';
+  const baseName = name?.trim() || emailLocalPart;
+  const displayName = baseName || 'Workspace';
+  // Slug derived from username/workspace name plus short suffix for uniqueness
+  const slugBase = baseName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') || 'workspace';
+  const slugSuffix = Date.now().toString(36).slice(-4);
+  const slug = `biz-${slugBase}-${slugSuffix}`;
   let tenant;
   try {
     tenant = await provisionTenant({ name: `${displayName}'s Workspace`, slug });
