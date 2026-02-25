@@ -12,24 +12,31 @@ datasource db {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Consent Template (form) – tenant-scoped
+// 1. Consent – tenant-scoped (form + record); share links generated per consent
 // ---------------------------------------------------------------------------
 
 model Consent {
-  id             String  @id @default(uuid())
-  userId         String  @map("user_id")
-  templateId     String? @map("template_id")
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  templateId     String?   @map("template_id")
   name           String
   description    String?
   type           String
+  granted        Boolean   @default(true)
   metadata       Json?
-  lifecycleState String  @default("DRAFT") @map("lifecycle_state")
+  lifecycleState String    @default("DRAFT") @map("lifecycle_state")
+  expiryDate     DateTime? @map("expiry_date")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
 
-  expiryDate DateTime? @map("expiry_date")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
-  deletedAt  DateTime? @map("deleted_at")
+  audits      ConsentAudit[]
+  acceptances ConsentAcceptance[]
+  revocations ConsentRevocation[]
+  shareLinks  ConsentShareLink[]
 
+  @@index([userId])
+  @@index([deletedAt])
   @@map("consents")
 }
 
@@ -52,23 +59,26 @@ model ConsentAudit {
   @@map("consent_audits")
 }
 
- 
-
 // ---------------------------------------------------------------------------
-// 6. Consent Acceptance
+// 6. Consent Acceptance (when consent is accepted via link or otherwise)
 // ---------------------------------------------------------------------------
 
 model ConsentAcceptance {
-  id                String   @id @default(uuid())
-  consentId         String   @map("consent_id")
-  acceptedAt        DateTime @default(now()) @map("accepted_at")
-  ipAddress         String?  @map("ip_address")
-  deviceInfo        String?  @map("device_info")
-  signatureData     String?  @map("signature_data")
-  otpVerified       Boolean  @default(false) @map("otp_verified")
-  receiptUrl        String?  @map("receipt_url")
+  id            String   @id @default(uuid())
+  consentId     String   @map("consent_id")
+  shareLinkId   String?  @map("share_link_id") // set when accepted via a share link
+  acceptedAt    DateTime @default(now()) @map("accepted_at")
+  ipAddress     String?  @map("ip_address")
+  deviceInfo    String?  @map("device_info")
+  signatureData String?  @map("signature_data")
+  otpVerified   Boolean  @default(false) @map("otp_verified")
+  receiptUrl    String?  @map("receipt_url")
 
- 
+  consent   Consent           @relation(fields: [consentId], references: [id], onDelete: Cascade)
+  shareLink ConsentShareLink? @relation(fields: [shareLinkId], references: [id], onDelete: SetNull)
+
+  @@index([consentId])
+  @@index([shareLinkId])
   @@map("consent_acceptances")
 }
 
@@ -77,109 +87,57 @@ model ConsentAcceptance {
 // ---------------------------------------------------------------------------
 
 model ConsentRevocation {
-  id                String   @id @default(uuid())
-  consentInstanceId String   @map("consent_instance_id")
-  revokedAt         DateTime @default(now()) @map("revoked_at")
-  revokedBy         String?  @map("revoked_by")
-  reason            String?
-  createdAt         DateTime @default(now()) @map("created_at")
+  id        String   @id @default(uuid())
+  consentId String   @map("consent_id")
+  revokedAt DateTime @default(now()) @map("revoked_at")
+  revokedBy String?  @map("revoked_by")
+  reason    String?
+  createdAt DateTime @default(now()) @map("created_at")
 
-  consentInstance ConsentInstance @relation(fields: [consentInstanceId], references: [id], onDelete: Cascade)
+  consent Consent @relation(fields: [consentId], references: [id], onDelete: Cascade)
 
+  @@index([consentId])
   @@map("consent_revocations")
 }
 
 // ---------------------------------------------------------------------------
-// 5. Consent Share Links (per template/form)
+// 5. Consent Share Links (per consent: public or private with API keys)
 // ---------------------------------------------------------------------------
 
 model ConsentShareLink {
   id         String    @id @default(uuid())
-  templateId String    @map("template_id")
+  consentId  String    @map("consent_id")
   token      String    @unique
   visibility String    @default("PUBLIC") @map("visibility") // PUBLIC, PRIVATE
   status     String    @default("ACTIVE") @map("status") // ACTIVE, REVOKED, EXPIRED
   expiresAt  DateTime? @map("expires_at")
+  usageLimit Int?      @map("usage_limit") // max number of acceptances via this link; null = unlimited
+  usageCount Int       @default(0) @map("usage_count")
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
 
-  template ConsentTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  apiKeys  ConsentShareApiKey[]
+  consent     Consent              @relation(fields: [consentId], references: [id], onDelete: Cascade)
+  apiKeys     ConsentShareApiKey[]
+  acceptances ConsentAcceptance[]
 
-  @@index([templateId])
+  @@index([consentId])
+  @@index([token])
   @@map("consent_share_links")
 }
 
 model ConsentShareApiKey {
-  id        String    @id @default(uuid())
-  linkId    String    @map("link_id")
-  name      String    @map("name")
-  valueHash String    @map("value_hash")
-  status    String    @default("ACTIVE") @map("status") // ACTIVE, REVOKED, EXPIRED
-  createdAt DateTime  @default(now()) @map("created_at")
-  expiresAt DateTime? @map("expires_at")
+  id         String    @id @default(uuid())
+  linkId     String    @map("link_id")
+  name       String    @map("name")
+  valueHash  String    @map("value_hash")
+  status     String    @default("ACTIVE") @map("status") // ACTIVE, REVOKED, EXPIRED
+  usageLimit Int?      @map("usage_limit") // max API calls; null = unlimited
+  usageCount Int       @default(0) @map("usage_count")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  expiresAt  DateTime? @map("expires_at")
 
   link ConsentShareLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
 
   @@index([linkId])
   @@map("consent_share_api_keys")
 }
-
-// ---------------------------------------------------------------------------
-// 8. Audit & Compliance
-// ---------------------------------------------------------------------------
-
-model AuditEvent {
-  id           String   @id @default(uuid())
-  entityType   String   @map("entity_type") // TEMPLATE, CONSENT_INSTANCE, USER
-  entityId     String   @map("entity_id")
-  action       String
-  performedBy  String?  @map("performed_by")
-  oldData      Json?    @map("old_data")
-  newData      Json?    @map("new_data")
-  ipAddress    String?  @map("ip_address")
-  createdAt    DateTime @default(now()) @map("created_at")
-  hash         String
-  previousHash String?  @map("previous_hash")
-
-  @@index([entityType])
-  @@index([createdAt])
-  @@map("audit_events")
-}
-
-// ---------------------------------------------------------------------------
-// 9. Webhook Module
-// ---------------------------------------------------------------------------
-
-model WebhookSubscription {
-  id        String   @id @default(uuid())
-  targetUrl String   @map("target_url")
-  secretKey String   @map("secret_key")
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at")
-
-  events WebhookEvent[]
-
-  @@map("webhook_subscriptions")
-}
-
-model WebhookEvent {
-  id             String    @id @default(uuid())
-  subscriptionId String    @map("subscription_id")
-  eventType      String    @map("event_type") // CONSENT_ACCEPTED, CONSENT_REVOKED
-  payload        Json
-  status         String    @default("PENDING") @map("status") // PENDING, SENT, FAILED
-  retryCount     Int       @default(0) @map("retry_count")
-  lastAttemptAt  DateTime? @map("last_attempt_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-
-  subscription WebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-
-  @@index([subscriptionId])
-  @@index([status])
-  @@map("webhook_events")
-}
-
-// ---------------------------------------------------------------------------
-// 10. Legacy Consent (per-tenant consents used by current API)
-// ---------------------------------------------------------------------------

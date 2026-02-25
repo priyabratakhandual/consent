@@ -3,16 +3,13 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { ApiError } from '../utils/ApiError.js';
 import { recordConsentAudit, ACTION_CREATED, ACTION_UPDATED, ACTION_DELETED } from '../services/audit.service.js';
 
-function getConsentMetadata(consent) {
-  const base = consent.metadata && typeof consent.metadata === 'object' ? consent.metadata : {};
-  if (!Array.isArray(base.links)) {
-    base.links = [];
-  }
-  return base;
+function hashApiKey(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
 }
 
 export const list = asyncHandler(async (req, res) => {
   const consents = await req.tenantClient.consent.findMany({
+    where: { deletedAt: null },
     orderBy: { createdAt: 'desc' },
     take: 100,
   });
@@ -37,16 +34,22 @@ export const getById = asyncHandler(async (req, res) => {
 });
 
 export const create = asyncHandler(async (req, res) => {
-  const { userId, type, granted = true, metadata } = req.body;
+  const { userId, type, granted = true, metadata, name, description, lifecycleState, expiryDate } = req.body;
   const uid = userId ?? req.user?.sub;
   const typeVal = typeof type === 'string' ? type.trim() : type;
   const grantedVal = Boolean(granted);
+  const nameVal = typeof name === 'string' && name.trim() ? name.trim() : (typeVal || 'Consent');
+  const lifecycleVal = lifecycleState === 'PUBLISHED' || lifecycleState === 'ARCHIVED' ? lifecycleState : 'DRAFT';
 
   const consent = await req.tenantClient.consent.create({
     data: {
       userId: uid,
       type: typeVal,
       granted: grantedVal,
+      name: nameVal,
+      description: description ?? undefined,
+      lifecycleState: lifecycleVal,
+      expiryDate: expiryDate ? new Date(expiryDate) : undefined,
       metadata: metadata ?? undefined,
     },
   });
@@ -66,174 +69,263 @@ export const create = asyncHandler(async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Link management stored inside consent.metadata.links (no extra tables)
+// Share links: DB-backed; public or private (API key); revoke; usage limit; stats
 // ---------------------------------------------------------------------------
 
 export const listLinks = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const consent = await req.tenantClient.consent.findUnique({ where: { id } });
+  const consent = await req.tenantClient.consent.findUnique({
+    where: { id },
+    select: { id: true },
+  });
   if (!consent) {
     throw ApiError.notFound('Consent not found');
   }
-  const metadata = getConsentMetadata(consent);
+  const links = await req.tenantClient.consentShareLink.findMany({
+    where: { consentId: id },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      apiKeys: {
+        select: { id: true, name: true, status: true, usageCount: true, usageLimit: true, createdAt: true, expiresAt: true },
+      },
+    },
+  });
   res.json({
     success: true,
-    data: { links: metadata.links },
+    data: { links },
   });
 });
 
 export const createLink = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { visibility = 'PUBLIC', expiresAt = null } = req.body || {};
+  const { visibility = 'PUBLIC', expiresAt = null, usageLimit = null } = req.body || {};
   const consent = await req.tenantClient.consent.findUnique({ where: { id } });
   if (!consent) {
     throw ApiError.notFound('Consent not found');
   }
-  const metadata = getConsentMetadata(consent);
-  const nowIso = new Date().toISOString();
-  const linkId = crypto.randomUUID();
   const token = crypto.randomBytes(18).toString('base64url');
-  const link = {
-    id: linkId,
-    token,
-    visibility: visibility === 'PRIVATE' ? 'PRIVATE' : 'PUBLIC',
-    status: 'ACTIVE',
-    expiresAt: expiresAt || null,
-    createdAt: nowIso,
-    apiKeys: [],
-  };
-  metadata.links = [...metadata.links, link];
-  const updated = await req.tenantClient.consent.update({
-    where: { id },
-    data: { metadata },
+  const link = await req.tenantClient.consentShareLink.create({
+    data: {
+      consentId: id,
+      token,
+      visibility: visibility === 'PRIVATE' ? 'PRIVATE' : 'PUBLIC',
+      status: 'ACTIVE',
+      expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+      usageLimit: typeof usageLimit === 'number' && usageLimit > 0 ? usageLimit : undefined,
+    },
   });
   res.status(201).json({
     success: true,
-    data: { consent: updated, link },
+    data: { link },
   });
 });
 
 export const updateLink = asyncHandler(async (req, res) => {
   const { id, linkId } = req.params;
-  const { visibility, status, expiresAt } = req.body || {};
+  const { visibility, status, expiresAt, usageLimit } = req.body || {};
   const consent = await req.tenantClient.consent.findUnique({ where: { id } });
   if (!consent) {
     throw ApiError.notFound('Consent not found');
   }
-  const metadata = getConsentMetadata(consent);
-  const idx = metadata.links.findIndex((l) => l.id === linkId);
-  if (idx === -1) {
+  const link = await req.tenantClient.consentShareLink.findFirst({
+    where: { id: linkId, consentId: id },
+  });
+  if (!link) {
     throw ApiError.notFound('Link not found');
   }
-  const current = metadata.links[idx];
-  const next = {
-    ...current,
-    visibility:
-      visibility && (visibility === 'PUBLIC' || visibility === 'PRIVATE')
-        ? visibility
-        : current.visibility,
-    status:
-      status && (status === 'ACTIVE' || status === 'REVOKED' || status === 'EXPIRED')
-        ? status
-        : current.status,
-    expiresAt: expiresAt !== undefined ? expiresAt || null : current.expiresAt,
-  };
-  metadata.links[idx] = next;
-  const updated = await req.tenantClient.consent.update({
-    where: { id },
-    data: { metadata },
+  const updated = await req.tenantClient.consentShareLink.update({
+    where: { id: linkId },
+    data: {
+      ...(visibility === 'PUBLIC' || visibility === 'PRIVATE' ? { visibility } : {}),
+      ...(status === 'ACTIVE' || status === 'REVOKED' || status === 'EXPIRED' ? { status } : {}),
+      ...(expiresAt !== undefined ? { expiresAt: expiresAt ? new Date(expiresAt) : null } : {}),
+      ...(usageLimit !== undefined ? { usageLimit: usageLimit > 0 ? usageLimit : null } : {}),
+    },
   });
   res.json({
     success: true,
-    data: { consent: updated, link: next },
+    data: { link: updated },
   });
 });
 
 export const createApiKey = asyncHandler(async (req, res) => {
   const { id, linkId } = req.params;
-  const { name = '', expiresAt = null } = req.body || {};
+  const { name = '', expiresAt = null, usageLimit = null } = req.body || {};
   const consent = await req.tenantClient.consent.findUnique({ where: { id } });
   if (!consent) {
     throw ApiError.notFound('Consent not found');
   }
-  const metadata = getConsentMetadata(consent);
-  const link = metadata.links.find((l) => l.id === linkId);
+  const link = await req.tenantClient.consentShareLink.findFirst({
+    where: { id: linkId, consentId: id },
+  });
   if (!link) {
     throw ApiError.notFound('Link not found');
   }
-  const keyId = crypto.randomUUID();
+  if (link.visibility !== 'PRIVATE') {
+    throw ApiError.badRequest('API keys can only be created for PRIVATE share links');
+  }
   const keyValue = crypto.randomBytes(24).toString('base64url');
-  const apiKey = {
-    id: keyId,
-    name: name || 'API key',
-    value: keyValue,
-    status: 'ACTIVE',
-    createdAt: new Date().toISOString(),
-    expiresAt: expiresAt || null,
-  };
-  link.apiKeys = Array.isArray(link.apiKeys) ? [...link.apiKeys, apiKey] : [apiKey];
-  const updated = await req.tenantClient.consent.update({
-    where: { id },
-    data: { metadata },
+  const valueHash = hashApiKey(keyValue);
+  const apiKey = await req.tenantClient.consentShareApiKey.create({
+    data: {
+      linkId,
+      name: name?.trim() || 'API key',
+      valueHash,
+      status: 'ACTIVE',
+      expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+      usageLimit: typeof usageLimit === 'number' && usageLimit > 0 ? usageLimit : undefined,
+    },
   });
   res.status(201).json({
     success: true,
-    data: { consent: updated, apiKey },
+    data: {
+      apiKey: {
+        id: apiKey.id,
+        name: apiKey.name,
+        status: apiKey.status,
+        usageLimit: apiKey.usageLimit,
+        expiresAt: apiKey.expiresAt,
+        createdAt: apiKey.createdAt,
+        value: keyValue, // returned only once
+      },
+    },
   });
 });
 
 export const updateApiKey = asyncHandler(async (req, res) => {
   const { id, linkId, keyId } = req.params;
-  const { name, status, expiresAt } = req.body || {};
+  const { name, status, expiresAt, usageLimit } = req.body || {};
   const consent = await req.tenantClient.consent.findUnique({ where: { id } });
   if (!consent) {
     throw ApiError.notFound('Consent not found');
   }
-  const metadata = getConsentMetadata(consent);
-  const link = metadata.links.find((l) => l.id === linkId);
-  if (!link || !Array.isArray(link.apiKeys)) {
+  const link = await req.tenantClient.consentShareLink.findFirst({
+    where: { id: linkId, consentId: id },
+  });
+  if (!link) {
+    throw ApiError.notFound('Link not found');
+  }
+  const key = await req.tenantClient.consentShareApiKey.findFirst({
+    where: { id: keyId, linkId },
+  });
+  if (!key) {
     throw ApiError.notFound('API key not found');
   }
-  const idx = link.apiKeys.findIndex((k) => k.id === keyId);
-  if (idx === -1) {
-    throw ApiError.notFound('API key not found');
-  }
-  const current = link.apiKeys[idx];
-  const next = {
-    ...current,
-    name: name !== undefined ? name : current.name,
-    status:
-      status && (status === 'ACTIVE' || status === 'REVOKED' || status === 'EXPIRED')
-        ? status
-        : current.status,
-    expiresAt: expiresAt !== undefined ? expiresAt || null : current.expiresAt,
-  };
-  link.apiKeys[idx] = next;
-  const updated = await req.tenantClient.consent.update({
-    where: { id },
-    data: { metadata },
+  const updated = await req.tenantClient.consentShareApiKey.update({
+    where: { id: keyId },
+    data: {
+      ...(name !== undefined ? { name } : {}),
+      ...(status === 'ACTIVE' || status === 'REVOKED' || status === 'EXPIRED' ? { status } : {}),
+      ...(expiresAt !== undefined ? { expiresAt: expiresAt ? new Date(expiresAt) : null } : {}),
+      ...(usageLimit !== undefined ? { usageLimit: usageLimit > 0 ? usageLimit : null } : {}),
+    },
   });
   res.json({
     success: true,
-    data: { consent: updated, apiKey: next },
+    data: { apiKey: updated },
+  });
+});
+
+/** GET /consents/:id/links/:linkId/stats – acceptances count, usage, limit for this share link */
+export const getLinkStats = asyncHandler(async (req, res) => {
+  const { id, linkId } = req.params;
+  const consent = await req.tenantClient.consent.findUnique({ where: { id } });
+  if (!consent) {
+    throw ApiError.notFound('Consent not found');
+  }
+  const link = await req.tenantClient.consentShareLink.findFirst({
+    where: { id: linkId, consentId: id },
+    include: {
+      apiKeys: { select: { id: true, name: true, status: true, usageCount: true, usageLimit: true } },
+    },
+  });
+  if (!link) {
+    throw ApiError.notFound('Link not found');
+  }
+  const acceptancesCount = await req.tenantClient.consentAcceptance.count({
+    where: { shareLinkId: linkId },
+  });
+  res.json({
+    success: true,
+    data: {
+      linkId: link.id,
+      token: link.token,
+      visibility: link.visibility,
+      status: link.status,
+      usageCount: link.usageCount,
+      usageLimit: link.usageLimit,
+      acceptancesCount,
+      apiKeys: link.apiKeys,
+    },
+  });
+});
+
+/** POST /consents/:id/links/:linkId/accept – record acceptance via share link; enforces usage limit */
+export const acceptViaLink = asyncHandler(async (req, res) => {
+  const { id, linkId } = req.params;
+  const { ipAddress, deviceInfo, signatureData, otpVerified, receiptUrl } = req.body || {};
+  const consent = await req.tenantClient.consent.findUnique({ where: { id } });
+  if (!consent) {
+    throw ApiError.notFound('Consent not found');
+  }
+  const link = await req.tenantClient.consentShareLink.findFirst({
+    where: { id: linkId, consentId: id },
+  });
+  if (!link) {
+    throw ApiError.notFound('Link not found');
+  }
+  if (link.status !== 'ACTIVE') {
+    throw ApiError.badRequest('Share link is not active (revoked or expired)');
+  }
+  if (link.expiresAt && new Date(link.expiresAt) < new Date()) {
+    throw ApiError.badRequest('Share link has expired');
+  }
+  if (link.usageLimit != null && link.usageCount >= link.usageLimit) {
+    throw ApiError.badRequest('Usage limit reached for this share link');
+  }
+  const [acceptance] = await req.tenantClient.$transaction([
+    req.tenantClient.consentAcceptance.create({
+      data: {
+        consentId: id,
+        shareLinkId: linkId,
+        ipAddress: ipAddress ?? undefined,
+        deviceInfo: deviceInfo ?? undefined,
+        signatureData: signatureData ?? undefined,
+        otpVerified: Boolean(otpVerified),
+        receiptUrl: receiptUrl ?? undefined,
+      },
+    }),
+    req.tenantClient.consentShareLink.update({
+      where: { id: linkId },
+      data: { usageCount: { increment: 1 } },
+    }),
+  ]);
+  res.status(201).json({
+    success: true,
+    data: { acceptance },
   });
 });
 
 export const update = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { granted, type, metadata } = req.body;
+  const { granted, type, metadata, name, description, lifecycleState, expiryDate } = req.body ?? {};
   const consent = await req.tenantClient.consent.findUnique({ where: { id } });
   if (!consent) {
     throw ApiError.notFound('Consent not found');
   }
 
-  const newGranted = typeof granted === 'boolean' ? granted : consent.granted;
-  const newType = typeof type === 'string' && type.trim() ? type.trim() : consent.type;
-  const newMetadata = metadata !== undefined ? metadata : consent.metadata;
+  const data = {};
+  if (typeof granted === 'boolean') data.granted = granted;
+  if (typeof type === 'string' && type.trim()) data.type = type.trim();
+  if (metadata !== undefined) data.metadata = metadata;
+  if (typeof name === 'string' && name.trim()) data.name = name.trim();
+  if (description !== undefined) data.description = description ?? null;
+  if (lifecycleState === 'DRAFT' || lifecycleState === 'PUBLISHED' || lifecycleState === 'ARCHIVED') data.lifecycleState = lifecycleState;
+  if (expiryDate !== undefined) data.expiryDate = expiryDate ? new Date(expiryDate) : null;
 
   const updated = await req.tenantClient.consent.update({
     where: { id },
-    data: { granted: newGranted, type: newType, metadata: newMetadata ?? undefined },
+    data: Object.keys(data).length ? data : undefined,
   });
 
   await recordConsentAudit(req.tenantClient, {
@@ -301,4 +393,6 @@ export default {
   updateLink,
   createApiKey,
   updateApiKey,
+  getLinkStats,
+  acceptViaLink,
 };
