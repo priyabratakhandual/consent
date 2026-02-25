@@ -78,7 +78,10 @@ export async function provisionTenant(input, ownerUserId = null) {
   if (existing) {
     throw ApiError.conflict('Tenant with this slug already exists');
   }
-  const tenantDbName = `tenant_${normalizedSlug}`;
+  // Database name: combine slug + short unique suffix so DB names stay unique even
+  // if similar slugs are ever re-used. This acts like a \"serial\" per user/slug.
+  const shortSuffix = Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 4);
+  const tenantDbName = `tenant_${normalizedSlug}_${shortSuffix}`;
   const databaseUrl = await createTenantDatabase(masterUrl, tenantDbName);
   await runTenantMigrations(databaseUrl);
   const tenant = await masterDb.tenant.create({
