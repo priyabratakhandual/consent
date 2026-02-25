@@ -17,7 +17,7 @@ datasource db {
 
 model Consent {
   id             String    @id @default(uuid())
-  userId         String    @map("user_id")
+  tenantId         String    @map("tenant_id")
   templateId     String?   @map("template_id")
   name           String
   description    String?
@@ -35,7 +35,7 @@ model Consent {
   revocations ConsentRevocation[]
   shareLinks  ConsentShareLink[]
 
-  @@index([userId])
+  @@index([tenantId])
   @@index([deletedAt])
   @@map("consents")
 }
