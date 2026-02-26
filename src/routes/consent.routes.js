@@ -13,6 +13,7 @@ router.get('/', consentController.list);
 router.get('/:id/versions', consentController.getVersions);
 router.get('/:id/links', consentController.listLinks);
 router.get('/:id/links/:linkId/stats', consentController.getLinkStats);
+router.get('/:id/links/:linkId/acceptances', consentController.getLinkAcceptances);
 router.get('/:id', consentController.getById);
 router.post('/', validateCreateConsent, consentController.create);
 router.patch('/:id', consentController.update);

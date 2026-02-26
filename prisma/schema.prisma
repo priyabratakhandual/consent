@@ -29,9 +29,23 @@ model Tenant {
   createdAt                  DateTime @default(now()) @map("created_at")
   updatedAt                  DateTime @updatedAt @map("updated_at")
 
-  users User[]
+  users            User[]
+  shareLinkRegistries ShareLinkRegistry[]
 
   @@map("tenants")
+}
+
+// Maps share link token -> tenant for public resolve (no auth).
+model ShareLinkRegistry {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  tenantId  String   @map("tenant_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@map("share_link_registry")
 }
 
 // Users (admin/operators). One row per user per tenant; UNIQUE(tenant_id, email).

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { ApiError } from '../utils/ApiError.js';
 import { recordConsentAudit, ACTION_CREATED, ACTION_UPDATED, ACTION_DELETED } from '../services/audit.service.js';
+import { masterDb } from '../db/index.js';
 
 function hashApiKey(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
@@ -53,6 +54,25 @@ export const create = asyncHandler(async (req, res) => {
     },
   });
 
+  // Create one default share link so user can share immediately
+  const defaultToken = crypto.randomBytes(18).toString('base64url');
+  const defaultLink = await req.tenantClient.consentShareLink.create({
+    data: {
+      consentId: consent.id,
+      token: defaultToken,
+      visibility: 'PUBLIC',
+      status: 'ACTIVE',
+    },
+  });
+  const tenantId = req.tenant?.id;
+  if (tenantId) {
+    await masterDb.shareLinkRegistry.upsert({
+      where: { token: defaultToken },
+      create: { token: defaultToken, tenantId },
+      update: { tenantId },
+    });
+  }
+
   await recordConsentAudit(req.tenantClient, {
     entityId: consent.id,
     action: ACTION_CREATED,
@@ -87,6 +107,7 @@ export const listLinks = asyncHandler(async (req, res) => {
       apiKeys: {
         select: { id: true, name: true, status: true, usageCount: true, usageLimit: true, createdAt: true, expiresAt: true },
       },
+      _count: { select: { acceptances: true } },
     },
   });
   res.json({
@@ -113,6 +134,14 @@ export const createLink = asyncHandler(async (req, res) => {
       usageLimit: typeof usageLimit === 'number' && usageLimit > 0 ? usageLimit : undefined,
     },
   });
+  const tenantId = req.tenant?.id;
+  if (tenantId) {
+    await masterDb.shareLinkRegistry.upsert({
+      where: { token },
+      create: { token, tenantId },
+      update: { tenantId },
+    });
+  }
   res.status(201).json({
     success: true,
     data: { link },
@@ -256,6 +285,30 @@ export const getLinkStats = asyncHandler(async (req, res) => {
       acceptancesCount,
       apiKeys: link.apiKeys,
     },
+  });
+});
+
+/** GET /consents/:id/links/:linkId/acceptances – list acceptances (device, IP) for this share link */
+export const getLinkAcceptances = asyncHandler(async (req, res) => {
+  const { id, linkId } = req.params;
+  const consent = await req.tenantClient.consent.findUnique({ where: { id } });
+  if (!consent) {
+    throw ApiError.notFound('Consent not found');
+  }
+  const link = await req.tenantClient.consentShareLink.findFirst({
+    where: { id: linkId, consentId: id },
+  });
+  if (!link) {
+    throw ApiError.notFound('Link not found');
+  }
+  const acceptances = await req.tenantClient.consentAcceptance.findMany({
+    where: { shareLinkId: linkId },
+    orderBy: { acceptedAt: 'desc' },
+    select: { id: true, acceptedAt: true, ipAddress: true, deviceInfo: true },
+  });
+  res.json({
+    success: true,
+    data: { acceptances },
   });
 });
 
