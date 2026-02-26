@@ -304,7 +304,7 @@ export const getLinkAcceptances = asyncHandler(async (req, res) => {
   const acceptances = await req.tenantClient.consentAcceptance.findMany({
     where: { shareLinkId: linkId },
     orderBy: { acceptedAt: 'desc' },
-    select: { id: true, acceptedAt: true, ipAddress: true, deviceInfo: true },
+    select: { id: true, acceptedAt: true, ipAddress: true, deviceInfo: true, signatureData: true },
   });
   res.json({
     success: true,
