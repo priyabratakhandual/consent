@@ -118,7 +118,7 @@ export const listLinks = asyncHandler(async (req, res) => {
 
 export const createLink = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { visibility = 'PUBLIC', expiresAt = null, usageLimit = null } = req.body || {};
+  const { expiresAt = null, usageLimit = null } = req.body || {};
   const consent = await req.tenantClient.consent.findUnique({ where: { id } });
   if (!consent) {
     throw ApiError.notFound('Consent not found');
@@ -128,7 +128,7 @@ export const createLink = asyncHandler(async (req, res) => {
     data: {
       consentId: id,
       token,
-      visibility: visibility === 'PRIVATE' ? 'PRIVATE' : 'PUBLIC',
+      visibility: 'PUBLIC',
       status: 'ACTIVE',
       expiresAt: expiresAt ? new Date(expiresAt) : undefined,
       usageLimit: typeof usageLimit === 'number' && usageLimit > 0 ? usageLimit : undefined,
