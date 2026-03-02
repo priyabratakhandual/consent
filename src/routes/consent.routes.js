@@ -10,6 +10,7 @@ router.use(authenticate);
 router.use(requireTenant);
 
 router.get('/', consentController.list);
+router.get('/analytics', consentController.getAnalytics);
 router.get('/:id/versions', consentController.getVersions);
 router.get('/:id/links', consentController.listLinks);
 router.get('/:id/links/:linkId/stats', consentController.getLinkStats);

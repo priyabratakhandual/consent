@@ -20,6 +20,66 @@ export const list = asyncHandler(async (req, res) => {
   });
 });
 
+/** GET /consents/analytics – dashboard stats: totals, acceptances by day, top consents */
+export const getAnalytics = asyncHandler(async (req, res) => {
+  const client = req.tenantClient;
+  const now = new Date();
+  const fourteenDaysAgo = new Date(now);
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+  fourteenDaysAgo.setHours(0, 0, 0, 0);
+
+  const [totalConsents, totalShareLinks, totalAcceptances, acceptancesLast14, consentsWithCounts] = await Promise.all([
+    client.consent.count({ where: { deletedAt: null } }),
+    client.consentShareLink.count(),
+    client.consentAcceptance.count(),
+    client.consentAcceptance.findMany({
+      where: { acceptedAt: { gte: fourteenDaysAgo } },
+      select: { acceptedAt: true },
+    }),
+    client.consent.findMany({
+      where: { deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        _count: { select: { acceptances: true } },
+      },
+      take: 100,
+    }),
+  ]);
+
+  const byDay = {};
+  for (let d = 0; d < 14; d++) {
+    const day = new Date(fourteenDaysAgo);
+    day.setDate(day.getDate() + d);
+    const key = day.toISOString().slice(0, 10);
+    byDay[key] = 0;
+  }
+  for (const a of acceptancesLast14) {
+    const key = new Date(a.acceptedAt).toISOString().slice(0, 10);
+    if (byDay[key] !== undefined) byDay[key]++;
+  }
+  const acceptancesByDay = Object.entries(byDay)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, count]) => ({ date, count }));
+
+  const topConsents = consentsWithCounts
+    .map((c) => ({ id: c.id, name: c.name, type: c.type, acceptanceCount: c._count.acceptances }))
+    .sort((a, b) => b.acceptanceCount - a.acceptanceCount)
+    .slice(0, 10);
+
+  res.json({
+    success: true,
+    data: {
+      totalConsents,
+      totalShareLinks,
+      totalAcceptances,
+      acceptancesByDay,
+      topConsents,
+    },
+  });
+});
+
 export const getById = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const consent = await req.tenantClient.consent.findUnique({
