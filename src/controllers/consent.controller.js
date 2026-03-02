@@ -118,7 +118,7 @@ export const listLinks = asyncHandler(async (req, res) => {
 
 export const createLink = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { expiresAt = null, usageLimit = null } = req.body || {};
+  const { expiresAt = null, usageLimit = null, nickname = null } = req.body || {};
   const consent = await req.tenantClient.consent.findUnique({ where: { id } });
   if (!consent) {
     throw ApiError.notFound('Consent not found');
@@ -128,6 +128,7 @@ export const createLink = asyncHandler(async (req, res) => {
     data: {
       consentId: id,
       token,
+      nickname: typeof nickname === 'string' && nickname.trim() ? nickname.trim() : undefined,
       visibility: 'PUBLIC',
       status: 'ACTIVE',
       expiresAt: expiresAt ? new Date(expiresAt) : undefined,
@@ -150,7 +151,7 @@ export const createLink = asyncHandler(async (req, res) => {
 
 export const updateLink = asyncHandler(async (req, res) => {
   const { id, linkId } = req.params;
-  const { visibility, status, expiresAt, usageLimit } = req.body || {};
+  const { visibility, status, expiresAt, usageLimit, nickname } = req.body || {};
   const consent = await req.tenantClient.consent.findUnique({ where: { id } });
   if (!consent) {
     throw ApiError.notFound('Consent not found');
@@ -168,6 +169,7 @@ export const updateLink = asyncHandler(async (req, res) => {
       ...(status === 'ACTIVE' || status === 'REVOKED' || status === 'EXPIRED' ? { status } : {}),
       ...(expiresAt !== undefined ? { expiresAt: expiresAt ? new Date(expiresAt) : null } : {}),
       ...(usageLimit !== undefined ? { usageLimit: usageLimit > 0 ? usageLimit : null } : {}),
+      ...(nickname !== undefined ? { nickname: typeof nickname === 'string' && nickname.trim() ? nickname.trim() : null } : {}),
     },
   });
   res.json({

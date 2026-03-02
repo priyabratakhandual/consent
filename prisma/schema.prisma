@@ -66,10 +66,12 @@ model User {
 
 // predefined templates for a consent form
 model Template {
-  id          String @id @default(uuid())
-  title       String @map("title")
-  description String @map("description")
-  content     Json   @map("content")
+  id          String  @id @default(uuid())
+  title       String  @map("title")
+  subtitle    String? @map("subtitle")
+  description String  @map("description")
+  image       String? @map("image") // emoji or image URL for card display
+  content     Json?   @map("content") // optional form blocks / metadata
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

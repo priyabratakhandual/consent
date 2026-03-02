@@ -108,6 +108,7 @@ model ConsentShareLink {
   id         String    @id @default(uuid())
   consentId  String    @map("consent_id")
   token      String    @unique
+  nickname   String?   @map("nickname") // optional label for the link (e.g. "Campaign A")
   visibility String    @default("PUBLIC") @map("visibility") // PUBLIC, PRIVATE
   status     String    @default("ACTIVE") @map("status") // ACTIVE, REVOKED, EXPIRED
   expiresAt  DateTime? @map("expires_at")
