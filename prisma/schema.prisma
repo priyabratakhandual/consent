@@ -54,7 +54,7 @@ model User {
   tenantId     String   @map("tenant_id")
   email        String
   passwordHash String   @map("password_hash")
-  role         String // SUPER_ADMIN, TENANT_ADMIN, OPERATOR, AUDITOR
+  role         String // SUPER_ADMIN, ADMIN, TENANT_ADMIN, OPERATOR, AUDITOR
   status       String   @default("ACTIVE")
   createdAt    DateTime @default(now()) @map("created_at")
 

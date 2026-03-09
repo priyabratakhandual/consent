@@ -156,6 +156,28 @@ export async function listTenantsForUser(userId) {
 }
 
 /**
+ * List all tenants with full details (for SUPER_ADMIN only). Excludes webhookSecret.
+ */
+export async function listAllTenants() {
+  return masterDb.tenant.findMany({
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      status: true,
+      databaseUrl: true,
+      defaultConsentValidityDays: true,
+      retentionPolicyDays: true,
+      webhookUrl: true,
+      createdAt: true,
+      updatedAt: true,
+      _count: { select: { users: true } },
+    },
+  });
+}
+
+/**
  * Assert user has access to tenant and return tenant record.
  * User belongs to one tenant per row; for "switch" we check same email in target tenant.
  */

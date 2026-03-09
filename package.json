@@ -14,7 +14,8 @@
     "prisma:migrate:tenant": "npx prisma migrate dev --schema=prisma/tenant/schema.prisma",
     "prisma:studio:master": "npx prisma studio --schema=prisma/schema.prisma --port 5555",
     "postinstall": "npm run prisma:generate",
-    "prisma:deploy:all-tenants": "node scripts/deploy-tenant-migrations.js"
+    "prisma:deploy:all-tenants": "node scripts/deploy-tenant-migrations.js",
+    "seed:superadmin": "node scripts/seed-superadmin.js"
   },
   "engines": {
     "node": ">=18.0.0"

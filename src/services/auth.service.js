@@ -89,10 +89,13 @@ export async function login(email, password, tenantId = null) {
   const where = tenantId
     ? { email: normalizedEmail, tenantId }
     : { email: normalizedEmail };
-  const user = await masterDb.user.findFirst({
+  const users = await masterDb.user.findMany({
     where,
     include: { tenant: true },
   });
+  const user = tenantId
+    ? users[0]
+    : (users.find((u) => u.role === 'SUPER_ADMIN') || users.find((u) => u.role === 'ADMIN') || users[0]);
   if (!user) {
     throw ApiError.unauthorized('Invalid email or password');
   }
