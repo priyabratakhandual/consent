@@ -15,7 +15,12 @@
     "prisma:studio:master": "npx prisma studio --schema=prisma/schema.prisma --port 5555",
     "postinstall": "npm run prisma:generate",
     "prisma:deploy:all-tenants": "node scripts/deploy-tenant-migrations.js",
-    "seed:superadmin": "node scripts/seed-superadmin.js"
+    "seed:superadmin": "node scripts/seed-superadmin.js",
+    "seed:templates": "node scripts/seed-templates.js",
+    "seed": "node scripts/seed-templates.js"
+  },
+  "prisma": {
+    "seed": "node scripts/seed-templates.js"
   },
   "engines": {
     "node": ">=18.0.0"
