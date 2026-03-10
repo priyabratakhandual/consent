@@ -33,9 +33,6 @@ export const getByToken = asyncHandler(async (req, res) => {
   if (link.expiresAt && new Date(link.expiresAt) < new Date()) {
     throw ApiError.badRequest('This share link has expired');
   }
-  if (link.usageLimit != null && link.usageCount >= link.usageLimit) {
-    throw ApiError.badRequest('Usage limit reached for this share link');
-  }
   if (link.visibility !== 'PUBLIC') {
     throw ApiError.badRequest('This link requires an API key');
   }
@@ -90,9 +87,6 @@ export const acceptByToken = asyncHandler(async (req, res) => {
   }
   if (link.expiresAt && new Date(link.expiresAt) < new Date()) {
     throw ApiError.badRequest('Share link has expired');
-  }
-  if (link.usageLimit != null && link.usageCount >= link.usageLimit) {
-    throw ApiError.badRequest('Usage limit reached for this share link');
   }
   if (link.visibility !== 'PUBLIC') {
     throw ApiError.badRequest('This link requires an API key');

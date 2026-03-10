@@ -394,9 +394,6 @@ export const acceptViaLink = asyncHandler(async (req, res) => {
   if (link.expiresAt && new Date(link.expiresAt) < new Date()) {
     throw ApiError.badRequest('Share link has expired');
   }
-  if (link.usageLimit != null && link.usageCount >= link.usageLimit) {
-    throw ApiError.badRequest('Usage limit reached for this share link');
-  }
   const [acceptance] = await req.tenantClient.$transaction([
     req.tenantClient.consentAcceptance.create({
       data: {
