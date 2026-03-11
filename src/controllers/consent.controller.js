@@ -13,6 +13,9 @@ export const list = asyncHandler(async (req, res) => {
     where: { deletedAt: null },
     orderBy: { createdAt: 'desc' },
     take: 100,
+    include: {
+      _count: { select: { acceptances: true } },
+    },
   });
   res.json({
     success: true,
