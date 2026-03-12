@@ -4,11 +4,18 @@
  * @returns {{ host, port, user, password, database }}
  */
 export function parsePostgresUrl(url) {
-  if (!url || typeof url !== 'string') {
-    throw new Error('Invalid PostgreSQL URL');
+  if (url == null || typeof url !== 'string') {
+    throw new Error('Invalid PostgreSQL URL: URL is required');
+  }
+  const trimmed = url.trim();
+  if (!trimmed) {
+    throw new Error('Invalid PostgreSQL URL: MASTER_DATABASE_URL is empty');
+  }
+  if (!/^postgres(ql)?:\/\//i.test(trimmed)) {
+    throw new Error('Invalid PostgreSQL URL: must start with postgresql:// or postgres://');
   }
   try {
-    const u = new URL(url);
+    const u = new URL(trimmed);
     if (u.protocol !== 'postgresql:' && u.protocol !== 'postgres:') {
       throw new Error('URL must be postgresql:// or postgres://');
     }

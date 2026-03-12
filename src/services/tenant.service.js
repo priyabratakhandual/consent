@@ -70,13 +70,24 @@ export async function provisionTenant(input, ownerUserId = null) {
   if (!normalizedSlug) {
     throw ApiError.badRequest('Invalid slug');
   }
-  const masterUrl = config.database?.masterUrl;
+  const masterUrl = config.database?.masterUrl?.trim();
   if (!masterUrl) {
     throw ApiError.internal('MASTER_DATABASE_URL not configured');
+  }
+  if (!/^postgres(ql)?:\/\//i.test(masterUrl)) {
+    throw ApiError.internal('MASTER_DATABASE_URL must be a valid postgresql:// URL');
   }
   const existing = await masterDb.tenant.findUnique({ where: { slug: normalizedSlug } });
   if (existing) {
     throw ApiError.conflict('Tenant with this slug already exists');
+  }
+  try {
+    parsePostgresUrl(masterUrl);
+  } catch (parseErr) {
+    logger.error('MASTER_DATABASE_URL parse failed', { message: parseErr.message });
+    throw ApiError.internal(
+      'Database configuration error. Check MASTER_DATABASE_URL is a valid postgresql:// URL; if the password contains special characters (e.g. @, #, %), encode them or wrap in single quotes in .env.'
+    );
   }
   // Database name pattern:
   //   0001_tenant_rahul
@@ -93,7 +104,13 @@ export async function provisionTenant(input, ownerUserId = null) {
   const usernamePart = slugParts[0] || 'tenant';
   const safeUser = usernamePart.replace(/[^a-z0-9_]/g, '') || 'tenant';
   const tenantDbName = `${serial}_tenant_${safeUser}`;
-  const databaseUrl = await createTenantDatabase(masterUrl, tenantDbName);
+  let databaseUrl;
+  try {
+    databaseUrl = await createTenantDatabase(masterUrl, tenantDbName);
+  } catch (dbErr) {
+    logger.error('Tenant database creation failed', { message: dbErr.message });
+    throw ApiError.internal('Workspace setup failed. Please contact support.');
+  }
   await runTenantMigrations(databaseUrl);
   const tenant = await masterDb.tenant.create({
     data: {

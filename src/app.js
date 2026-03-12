@@ -12,6 +12,9 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 const app = express();
 
+// Trust first proxy (e.g. nginx, load balancer) so X-Forwarded-For is used for rate limiting and req.ip
+app.set('trust proxy', 1);
+
 // Security & parsing
 app.use(helmetMiddleware);
 app.use(corsMiddleware);
