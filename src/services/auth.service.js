@@ -34,6 +34,10 @@ export async function register(email, password, name = null) {
       throw ApiError.conflict('Tenant slug already exists; try again.');
     }
     logger.error('Auto-provision tenant failed at signup', { message: err.message });
+    // Rethrow ApiError so client gets the real message (e.g. database config, migration failure)
+    if (err.name === 'ApiError' && err.statusCode) {
+      throw err;
+    }
     throw ApiError.internal('Workspace setup failed. Please contact support.');
   }
   const existingInTenant = await masterDb.user.findUnique({

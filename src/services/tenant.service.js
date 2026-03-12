@@ -109,7 +109,9 @@ export async function provisionTenant(input, ownerUserId = null) {
     databaseUrl = await createTenantDatabase(masterUrl, tenantDbName);
   } catch (dbErr) {
     logger.error('Tenant database creation failed', { message: dbErr.message });
-    throw ApiError.internal('Workspace setup failed. Please contact support.');
+    throw ApiError.internal(
+      'Workspace setup failed: ' + (dbErr.message || 'Could not create tenant database. Check MASTER_DATABASE_URL and that the database user can create databases.')
+    );
   }
   await runTenantMigrations(databaseUrl);
   const tenant = await masterDb.tenant.create({
