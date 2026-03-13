@@ -19,6 +19,7 @@ router.get('/:id', consentController.getById);
 router.post('/', validateCreateConsent, consentController.create);
 router.patch('/:id', consentController.update);
 router.delete('/:id', consentController.softDelete);
+router.post('/:id/revoke', consentController.revokeConsent);
 router.post('/:id/links', consentController.createLink);
 router.post('/:id/links/:linkId/accept', consentController.acceptViaLink);
 router.patch('/:id/links/:linkId', consentController.updateLink);

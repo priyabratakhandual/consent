@@ -60,43 +60,75 @@ model ConsentAudit {
 }
 
 // ---------------------------------------------------------------------------
+// ConsentSigner (consent_signers) – person who accepted; for login, revocation, email
+// ---------------------------------------------------------------------------
+model ConsentSigner {
+  id           String   @id @default(uuid())
+  email        String?  @map("email")
+  phone        String?  @map("phone")
+  name         String   @map("name")
+  passwordHash String?  @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  acceptances  ConsentAcceptance[]
+  revocations  ConsentRevocation[]  @relation("RevokedBySigner")
+
+  @@index([email])
+  @@index([phone])
+  @@map("consent_signers")
+}
+
+// ---------------------------------------------------------------------------
 // 6. Consent Acceptance (when consent is accepted via link or otherwise)
 // ---------------------------------------------------------------------------
 
 model ConsentAcceptance {
-  id            String   @id @default(uuid())
-  consentId     String   @map("consent_id")
-  shareLinkId   String?  @map("share_link_id") // set when accepted via a share link
-  acceptedAt    DateTime @default(now()) @map("accepted_at")
-  ipAddress     String?  @map("ip_address")
-  deviceInfo    String?  @map("device_info")
+  id            String    @id @default(uuid())
+  consentId     String    @map("consent_id")
+  consentSignerId String?  @map("consent_signer_id")
+  shareLinkId   String?   @map("share_link_id")
+  acceptedAt   DateTime  @default(now()) @map("accepted_at")
+  ipAddress    String?   @map("ip_address")
+  deviceInfo   String?   @map("device_info")
   signatureData String?  @map("signature_data")
-  otpVerified   Boolean  @default(false) @map("otp_verified")
-  receiptUrl    String?  @map("receipt_url")
+  otpVerified  Boolean   @default(false) @map("otp_verified")
+  receiptUrl   String?   @map("receipt_url")
+  status       String    @default("ACTIVE") @map("status") // ACTIVE | REVOKED
+  revokedAt    DateTime? @map("revoked_at")
 
-  consent   Consent           @relation(fields: [consentId], references: [id], onDelete: Cascade)
-  shareLink ConsentShareLink? @relation(fields: [shareLinkId], references: [id], onDelete: SetNull)
+  consent    Consent            @relation(fields: [consentId], references: [id], onDelete: Cascade)
+  consentSigner ConsentSigner?  @relation(fields: [consentSignerId], references: [id], onDelete: SetNull)
+  shareLink  ConsentShareLink?   @relation(fields: [shareLinkId], references: [id], onDelete: SetNull)
+  revocations ConsentRevocation[]
 
   @@index([consentId])
+  @@index([consentSignerId])
   @@index([shareLinkId])
+  @@index([status])
   @@map("consent_acceptances")
 }
 
 // ---------------------------------------------------------------------------
-// 7. Consent Revocation
+// 7. Consent Revocation – user-initiated or application-triggered
 // ---------------------------------------------------------------------------
 
 model ConsentRevocation {
-  id        String   @id @default(uuid())
-  consentId String   @map("consent_id")
-  revokedAt DateTime @default(now()) @map("revoked_at")
-  revokedBy String?  @map("revoked_by")
-  reason    String?
-  createdAt DateTime @default(now()) @map("created_at")
+  id                 String   @id @default(uuid())
+  consentId          String   @map("consent_id")
+  acceptanceId       String?  @map("acceptance_id")
+  revokedByType      String   @map("revoked_by_type") // USER | APPLICATION
+  consentSignerId    String?  @map("consent_signer_id") // for USER
+  revokedBy          String?  @map("revoked_by") // for APPLICATION: userId
+  reason             String?
+  revokedAt         DateTime @default(now()) @map("revoked_at")
+  createdAt         DateTime @default(now()) @map("created_at")
 
-  consent Consent @relation(fields: [consentId], references: [id], onDelete: Cascade)
+  consent    Consent            @relation(fields: [consentId], references: [id], onDelete: Cascade)
+  acceptance ConsentAcceptance? @relation(fields: [acceptanceId], references: [id], onDelete: SetNull)
+  consentSigner ConsentSigner?  @relation("RevokedBySigner", fields: [consentSignerId], references: [id], onDelete: SetNull)
 
   @@index([consentId])
+  @@index([acceptanceId])
   @@map("consent_revocations")
 }
 

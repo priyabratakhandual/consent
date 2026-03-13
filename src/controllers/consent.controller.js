@@ -369,7 +369,16 @@ export const getLinkAcceptances = asyncHandler(async (req, res) => {
   const acceptances = await req.tenantClient.consentAcceptance.findMany({
     where: { shareLinkId: linkId },
     orderBy: { acceptedAt: 'desc' },
-    select: { id: true, acceptedAt: true, ipAddress: true, deviceInfo: true, signatureData: true },
+    select: {
+      id: true,
+      acceptedAt: true,
+      ipAddress: true,
+      deviceInfo: true,
+      signatureData: true,
+      status: true,
+      revokedAt: true,
+      consentSigner: { select: { id: true, name: true, email: true, phone: true } },
+    },
   });
   res.json({
     success: true,
@@ -457,6 +466,29 @@ export const update = asyncHandler(async (req, res) => {
   });
 });
 
+/** POST /consents/:id/revoke – application-triggered revocation; immediate status update */
+export const revokeConsent = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body || {};
+  const consent = await req.tenantClient.consent.findUnique({ where: { id } });
+  if (!consent) {
+    throw ApiError.notFound('Consent not found');
+  }
+  const userId = req.user?.sub ?? null;
+  await req.tenantClient.consentRevocation.create({
+    data: {
+      consentId: id,
+      revokedByType: 'APPLICATION',
+      revokedBy: userId,
+      reason: typeof reason === 'string' && reason.trim() ? reason.trim() : undefined,
+    },
+  });
+  res.json({
+    success: true,
+    data: { revoked: true, consentId: id },
+  });
+});
+
 export const softDelete = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const consent = await req.tenantClient.consent.findUnique({ where: { id } });
@@ -508,5 +540,7 @@ export default {
   createApiKey,
   updateApiKey,
   getLinkStats,
+  getLinkAcceptances,
   acceptViaLink,
+  revokeConsent,
 };
