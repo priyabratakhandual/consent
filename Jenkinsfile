@@ -17,7 +17,7 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: 'env-file', variable: 'ENV_FILE')]) {
                     sh '''
-                    printf "%s\n" "$ENV_FILE" > .env
+                    cp $ENV_FILE .env
                     '''
                 }
             }
