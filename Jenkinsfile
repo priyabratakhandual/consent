@@ -17,7 +17,7 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: 'env-file', variable: 'ENV_FILE')]) {
                     sh '''
-                    echo "$ENV_FILE" > .env
+                    printf "%s" "$ENV_FILE" > .env
                     '''
                 }
             }
