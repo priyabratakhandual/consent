@@ -47,6 +47,9 @@ pipeline {
                 --name node-app \
                 --env-file .env \
                 -p 3000:3000 \
+                --label com.datadoghq.tags.service=node-app \
+                --label com.datadoghq.tags.env=dev \
+                --label com.datadoghq.tags.env=dev \
                 node-app
                 '''
             }
